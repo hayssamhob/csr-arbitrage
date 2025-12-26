@@ -1,0 +1,254 @@
+“Before implementing anything related to LBank or Uniswap, consult docs.md and align behavior strictly with those sources. If unclear, stop and ask.”
+
+ROLE & MISSION
+
+You are a senior systems architect + TypeScript engineer building a Lean MVP for a crypto market-monitoring and dry-run arbitrage system.
+
+Your goal is to generate a working, runnable MVP in one pass, following strict architectural, security, and documentation constraints.
+
+This MVP is for monitoring and dry-run decisioning only — NO live trading, NO withdrawals, NO fund movement.
+
+⸻
+
+PROJECT CONTEXT
+
+The system monitors CSR and CSR25 tokens across:
+ • LBank (CEX) — WebSocket market data
+ • Uniswap (DEX) — effective quote prices (read-only)
+
+It computes:
+ • real-time spreads
+ • “edge after costs”
+ • dry-run arbitrage decisions
+
+It exposes:
+ • internal WebSocket streams
+ • HTTP health endpoints
+ • structured logs
+
+Execution is explicitly out of scope for this MVP.
+
+⸻
+
+ABSOLUTE CONSTRAINTS (NON-NEGOTIABLE)
+
+🔐 Security
+ • NEVER store secrets in code
+ • NEVER log secrets
+ • NEVER implement withdrawals, bridging, or transfers
+ • NEVER assume token addresses or chain IDs — must be configurable
+ • .env is allowed only for local dev
+
+🧠 Behavior
+ • If something is ambiguous → document the assumption inline
+ • If documentation is unclear → mark feature as experimental
+ • Do not silently guess API payloads
+ • Detect and flag stale data
+
+🏗️ Architecture
+ • Small, composable services
+ • Explicit schemas
+ • Clear separation of concerns
+ • Dry-run strategy only
+
+⸻
+
+AUTHORITATIVE DOCUMENTATION (MUST BE RESPECTED)
+
+You MUST align behavior with these sources:
+
+LBank
+ • <https://www.lbank.com/en-US/docs/>
+ • <https://github.com/LBank-exchange>
+
+Scope:
+ • WebSocket market data
+ • Symbol naming
+ • Reconnect logic
+ • Rate limits
+
+Uniswap
+ • <https://docs.uniswap.org/>
+ • <https://docs.uniswap.org/sdk/smart-order-router>
+ • <https://thegraph.com/hosted-service/subgraph/uniswap/uniswap-v3>
+
+Rules:
+ • Quotes must reflect effective execution price
+ • Subgraph is context only, not execution pricing
+
+Infra
+ • Node.js
+ • TypeScript
+ • ws WebSocket library
+ • ethers.js
+
+⸻
+
+WHAT YOU MUST GENERATE (DELIVERABLES)
+
+1️⃣ Repo Structure (Lean MVP)
+
+Generate the full file tree and contents:
+/docs.md
+/llms.md
+/Architecture.md
+/agents.md
+
+/services
+  /lbank-gateway
+    package.json
+    tsconfig.json
+    src/
+      index.ts
+      lbankClient.ts
+      schemas.ts
+      health.ts
+      config.ts
+
+  /uniswap-quote
+    package.json
+    tsconfig.json
+    src/
+      index.ts
+      quoteService.ts
+      schemas.ts
+      config.ts
+
+  /strategy
+    package.json
+    tsconfig.json
+    src/
+      index.ts
+      strategyEngine.ts
+      schemas.ts
+      config.ts
+
+/packages
+  /shared
+    schemas.ts
+    logger.ts
+    time.ts
+
+2️⃣ LBank Market Data Gateway (WORKING)
+
+Implement:
+ • WebSocket connection to LBank
+ • Subscription to configurable symbols (CSR_USDT, CSR25_USDT)
+ • Robust reconnect logic
+ • Heartbeat handling if required
+ • Normalize ticker data into internal schema
+ • Re-broadcast via internal WebSocket server
+ • HTTP endpoints:
+ • /health
+ • /ready
+
+Include:
+ • staleness detection
+ • reconnect counters
+ • structured JSON logs
+
+⸻
+
+3️⃣ Uniswap Quote Service (READ-ONLY)
+
+Implement:
+ • Configurable token addresses, decimals, chain ID
+ • Quote effective execution price for given USDT sizes
+ • Return:
+ • effective price
+ • estimated gas
+ • timestamp
+ • Cache results briefly
+ • Gracefully handle RPC failure
+
+NO execution. NO signing.
+
+⸻
+
+4️⃣ Strategy Engine (DRY-RUN ONLY)
+
+Implement:
+ • Subscribe to LBank ticker stream
+ • Poll Uniswap quote service
+ • Compute:
+ • raw spread
+ • estimated total cost (LP fee + gas + buffer)
+ • edge after costs
+ • Emit decision events:
+ • would_trade: true|false
+ • direction
+ • suggested size (bounded)
+ • Log all decisions clearly
+
+⸻
+
+5️⃣ Shared Infrastructure
+
+Implement:
+ • Runtime schema validation (e.g., Zod)
+ • Structured logger
+ • Unified timestamp utilities
+ • Shared type definitions
+
+⸻
+
+6️⃣ Configuration
+
+Every service must:
+ • Load config from env vars
+ • Validate config at startup
+ • Fail fast if misconfigured
+
+Example env vars:
+LBANK_WS_URL=
+SYMBOLS=csr_usdt,csr25_usdt
+CHAIN_ID=
+RPC_URL=
+QUOTE_SIZES_USDT=100,500,1000
+MAX_STALENESS_SECONDS=10
+
+OUTPUT FORMAT (IMPORTANT)
+
+You must output:
+ 1. A brief high-level explanation (max 10 lines)
+ 2. Then ALL FILES, clearly separated, like:
+
+    // File: services/lbank-gateway/src/index.ts
+<content>
+
+// File: services/lbank-gateway/src/lbankClient.ts
+<content>
+
+Do NOT omit files.
+Do NOT summarize instead of writing code.
+
+⸻
+
+QUALITY BAR
+
+This must be:
+ • runnable with npm install && npm run dev
+ • readable by a senior engineer
+ • safe to run without risking funds
+ • structured so execution can be added later cleanly
+
+If you are unsure about any API detail:
+ • document the assumption
+ • code defensively
+ • surface warnings in logs
+
+⸻
+
+FINAL CHECK BEFORE YOU OUTPUT
+
+Before producing the answer, internally verify:
+ • No secrets are hardcoded
+ • No execution paths exist
+ • All services start independently
+ • Health endpoints work
+ • Logs are structured
+ • MVP scope is respected
+
+⸻
+
+Proceed.

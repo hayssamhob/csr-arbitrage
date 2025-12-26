@@ -1,0 +1,19 @@
+{
+  "name": "csr-arbitrage-mvp",
+  "version": "1.0.0",
+  "description": "CSR/CSR25 arbitrage monitoring system (dry-run MVP)",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix packages/shared && npm install --prefix services/lbank-gateway && npm install --prefix services/uniswap-quote && npm install --prefix services/strategy",
+    "build:shared": "npm run build --prefix packages/shared",
+    "build:lbank": "npm run build --prefix services/lbank-gateway",
+    "build:uniswap": "npm run build --prefix services/uniswap-quote",
+    "build:strategy": "npm run build --prefix services/strategy",
+    "dev:lbank": "npm run dev --prefix services/lbank-gateway",
+    "dev:uniswap": "npm run dev --prefix services/uniswap-quote",
+    "dev:strategy": "npm run dev --prefix services/strategy"
+  },
+  "keywords": ["lbank", "uniswap", "arbitrage", "cryptocurrency", "monitoring"],
+  "author": "",
+  "license": "MIT"
+}
