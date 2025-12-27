@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8001";
 
 interface ServiceHealth {
   service: string;
@@ -15,72 +15,72 @@ interface ServiceHealth {
 }
 
 interface LBankTicker {
-  type: string
-  symbol: string
-  ts: string
-  bid: number
-  ask: number
-  last: number
-  volume_24h: number
+  type: string;
+  symbol: string;
+  ts: string;
+  bid: number;
+  ask: number;
+  last: number;
+  volume_24h: number;
 }
 
 interface UniswapQuote {
-  type: string
-  pair: string
-  chain_id: number
-  ts: string
-  amount_in: string
-  effective_price_usdt: number
-  is_stale: boolean
-  error?: string
-  source?: string
-  validated?: boolean
+  type: string;
+  pair: string;
+  chain_id: number;
+  ts: string;
+  amount_in: string;
+  effective_price_usdt: number;
+  is_stale: boolean;
+  error?: string;
+  source?: string;
+  validated?: boolean;
 }
 
 interface StrategyDecision {
-  type: string
-  ts: string
-  symbol: string
-  lbank_bid: number
-  lbank_ask: number
-  uniswap_price: number
-  raw_spread_bps: number
-  estimated_cost_bps: number
-  edge_after_costs_bps: number
-  would_trade: boolean
-  direction: string
-  suggested_size_usdt: number
-  reason: string
+  type: string;
+  ts: string;
+  symbol: string;
+  lbank_bid: number;
+  lbank_ask: number;
+  uniswap_price: number;
+  raw_spread_bps: number;
+  estimated_cost_bps: number;
+  edge_after_costs_bps: number;
+  would_trade: boolean;
+  direction: string;
+  suggested_size_usdt: number;
+  reason: string;
 }
 
 interface MarketData {
-  lbank_ticker?: LBankTicker
-  uniswap_quote?: UniswapQuote
-  decision?: StrategyDecision
+  lbank_ticker?: LBankTicker;
+  uniswap_quote?: UniswapQuote;
+  decision?: StrategyDecision;
 }
 
 interface MarketState {
-  ts: string
-  csr_usdt: MarketData
-  csr25_usdt: MarketData
-  is_stale: boolean
+  ts: string;
+  csr_usdt: MarketData;
+  csr25_usdt: MarketData;
+  is_stale: boolean;
 }
 
 interface SystemStatus {
-  ts: string
-  lbank_gateway?: ServiceHealth
-  uniswap_quote_csr25?: ServiceHealth
-  uniswap_quote_csr?: ServiceHealth
-  strategy_engine?: ServiceHealth
-  overall_status: string
+  ts: string;
+  lbank_gateway?: ServiceHealth;
+  uniswap_quote_csr25?: ServiceHealth;
+  uniswap_quote_csr?: ServiceHealth;
+  strategy_engine?: ServiceHealth;
+  overall_status: string;
 }
 
 interface DashboardData {
-  ts: string
-  market_state?: MarketState
-  decision?: { csr_usdt?: StrategyDecision; csr25_usdt?: StrategyDecision }
-  system_status: SystemStatus
-  opportunities: StrategyDecision[]
+  ts: string;
+  market_state?: MarketState;
+  decision?: { csr_usdt?: StrategyDecision; csr25_usdt?: StrategyDecision };
+  system_status: SystemStatus;
+  opportunities: StrategyDecision[];
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -92,7 +92,11 @@ function StatusBadge({ status }: { status: string }) {
     unknown: "bg-gray-500",
   };
   return (
-    <span className={`px-2 py-1 rounded text-xs font-bold text-white ${colors[status] || colors.unknown}`}>
+    <span
+      className={`px-2 py-1 rounded text-xs font-bold text-white ${
+        colors[status] || colors.unknown
+      }`}
+    >
       {status.toUpperCase()}
     </span>
   );
@@ -114,6 +118,19 @@ function timeAgo(ts: string): string {
   return `${Math.floor(diffMs / 3600000)}h ago`;
 }
 
+interface CostBreakdown {
+  cex_fee_bps: number;
+  dex_lp_fee_bps: number;
+  gas_cost_bps: number;
+  rebalance_bps: number;
+  slippage_bps: number;
+}
+
+interface ExtendedDecision extends StrategyDecision {
+  cost_breakdown?: CostBreakdown;
+  cex_source?: string;
+}
+
 function MarketCard({
   title,
   market,
@@ -125,7 +142,13 @@ function MarketCard({
 }) {
   const lbank = market.lbank_ticker;
   const uniswap = market.uniswap_quote;
-  const decision = market.decision;
+  const decision = market.decision as ExtendedDecision | undefined;
+
+  // Determine CEX source based on market
+  const isCSR =
+    title.toLowerCase().includes("csr") &&
+    !title.toLowerCase().includes("csr25");
+  const cexSource = isCSR ? "LATOKEN" : "LBANK";
 
   const lbankSymbolKey = title.toLowerCase().includes("csr25")
     ? "csr25_usdt"
@@ -137,15 +160,29 @@ function MarketCard({
     <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
       <h3 className="text-xl font-bold text-white mb-4">{title}</h3>
 
-      {/* LBank (CEX) Section */}
+      {/* CEX Section */}
       <div className="mb-4 p-4 bg-slate-900 rounded-lg">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-slate-400 font-medium">LBank (CEX)</span>
-          {lbank && (
+          <span className="text-slate-400 font-medium">{cexSource} (CEX)</span>
+          {lbank && cexSource === "LBANK" && (
             <span className="text-xs text-slate-500">{timeAgo(lbank.ts)}</span>
           )}
         </div>
-        {lbank ? (
+
+        {/* CSR on LATOKEN - show clear status */}
+        {isCSR ? (
+          <div className="space-y-2">
+            <div className="text-yellow-400 text-sm">
+              LATOKEN: API blocked from current network
+            </div>
+            <div className="text-xs text-slate-500">
+              Connection refused to api.latoken.com
+            </div>
+            <div className="text-xs text-blue-400 mt-2">
+              LBank: Not available via API (confirmed)
+            </div>
+          </div>
+        ) : lbank ? (
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-slate-400">Bid</span>
@@ -166,7 +203,7 @@ function MarketCard({
             <div className="flex justify-between">
               <span className="text-slate-400">Volume 24h</span>
               <span className="font-mono text-sm">
-                {lbank.volume_24h.toLocaleString()}
+                {lbank.volume_24h?.toLocaleString() || "N/A"}
               </span>
             </div>
           </div>
