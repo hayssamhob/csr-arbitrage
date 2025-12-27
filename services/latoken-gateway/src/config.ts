@@ -1,13 +1,14 @@
 import { z } from 'zod';
 
 // ============================================================================
-// Configuration validation with Zod
+// LATOKEN Gateway Configuration
+// API keys optional for public market data
 // ============================================================================
+
 const ConfigSchema = z.object({
-  // Latoken API
-  LATOKEN_API_KEY: z.string().min(1, 'LATOKEN_API_KEY is required'),
-  LATOKEN_API_SECRET: z.string().min(1, 'LATOKEN_API_SECRET is required'),
-  LATOKEN_API_URL: z.string().url().default('https://api.latoken.com'),
+  // LATOKEN API (optional for public endpoints)
+  LATOKEN_API_KEY: z.string().optional().default(''),
+  LATOKEN_API_SECRET: z.string().optional().default(''),
   
   // Service ports
   INTERNAL_WS_PORT: z.coerce.number().int().positive().default(8081),
@@ -17,7 +18,7 @@ const ConfigSchema = z.object({
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
   MAX_STALENESS_SECONDS: z.coerce.number().int().positive().default(15),
   
-  // Symbols
+  // Symbols (internal format: csr_usdt)
   SYMBOLS: z.string().transform((val) => val.split(',').map(s => s.trim()).filter(Boolean)),
   
   // Logging
@@ -30,17 +31,15 @@ export function loadConfig(): Config {
   const rawConfig = {
     LATOKEN_API_KEY: process.env.LATOKEN_API_KEY,
     LATOKEN_API_SECRET: process.env.LATOKEN_API_SECRET,
-    LATOKEN_API_URL: process.env.LATOKEN_API_URL,
     INTERNAL_WS_PORT: process.env.INTERNAL_WS_PORT,
     HTTP_PORT: process.env.HTTP_PORT,
     POLL_INTERVAL_MS: process.env.POLL_INTERVAL_MS,
     MAX_STALENESS_SECONDS: process.env.MAX_STALENESS_SECONDS,
-    SYMBOLS: process.env.SYMBOLS || 'CSR_USDT',
+    SYMBOLS: process.env.SYMBOLS || 'csr_usdt',
     LOG_LEVEL: process.env.LOG_LEVEL,
   };
 
-  const config = ConfigSchema.parse(rawConfig);
-  return config;
+  return ConfigSchema.parse(rawConfig);
 }
 
 export function getSymbolsList(config: Config): string[] {

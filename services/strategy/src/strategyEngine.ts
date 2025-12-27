@@ -326,23 +326,24 @@ export class StrategyEngine {
     const gasCostBps =
       (realTimeGasCostUsdt / this.config.QUOTE_SIZE_USDT) * 10000;
 
-    // 4. Network/withdrawal fee as basis points of trade size
-    const networkFeeBps =
-      (this.config.NETWORK_FEE_USDT / this.config.QUOTE_SIZE_USDT) * 10000;
+    // 4. Rebalance cost (optional, off by default for Pattern C inventory arbitrage)
+    const rebalanceBps = this.config.INCLUDE_REBALANCE_COST
+      ? this.config.REBALANCE_COST_BPS
+      : 0;
 
     // 5. Slippage buffer
     const slippageBps = this.config.SLIPPAGE_BUFFER_BPS;
 
-    // Total estimated cost
+    // Total estimated cost (Pattern C: no per-trade network fees)
     const estimatedCostBps =
-      cexFeeBps + dexFeeBps + gasCostBps + networkFeeBps + slippageBps;
+      cexFeeBps + dexFeeBps + gasCostBps + rebalanceBps + slippageBps;
 
     // Cost breakdown for transparency
     const costBreakdown = {
       cex_fee_bps: Math.round(cexFeeBps * 100) / 100,
       dex_lp_fee_bps: Math.round(dexFeeBps * 100) / 100,
       gas_cost_bps: Math.round(gasCostBps * 100) / 100,
-      network_fee_bps: Math.round(networkFeeBps * 100) / 100,
+      rebalance_bps: Math.round(rebalanceBps * 100) / 100,
       slippage_bps: Math.round(slippageBps * 100) / 100,
     };
     const edgeAfterCostsBps = rawSpreadBps - estimatedCostBps;

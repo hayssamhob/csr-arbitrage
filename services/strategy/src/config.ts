@@ -37,8 +37,10 @@ const ConfigSchema = z.object({
   // Estimated gas cost for DEX swap in USDT
   GAS_COST_USDT: z.coerce.number().min(0).default(5),
 
-  // Network/withdrawal fee in USDT (CEX withdrawal + bridge if needed)
-  NETWORK_FEE_USDT: z.coerce.number().min(0).default(10),
+  // Rebalance cost in bps (amortized, off by default for Pattern C inventory arbitrage)
+  // Only enable if you need to periodically rebalance inventory across venues
+  REBALANCE_COST_BPS: z.coerce.number().min(0).default(0),
+  INCLUDE_REBALANCE_COST: z.coerce.boolean().default(false),
 
   // Slippage buffer in basis points (extra safety margin)
   SLIPPAGE_BUFFER_BPS: z.coerce.number().min(0).default(10),
@@ -73,7 +75,8 @@ export function loadConfig(): Config {
     CEX_TRADING_FEE_BPS: process.env.CEX_TRADING_FEE_BPS,
     DEX_LP_FEE_BPS: process.env.DEX_LP_FEE_BPS,
     GAS_COST_USDT: process.env.GAS_COST_USDT,
-    NETWORK_FEE_USDT: process.env.NETWORK_FEE_USDT,
+    REBALANCE_COST_BPS: process.env.REBALANCE_COST_BPS,
+    INCLUDE_REBALANCE_COST: process.env.INCLUDE_REBALANCE_COST,
     SLIPPAGE_BUFFER_BPS: process.env.SLIPPAGE_BUFFER_BPS,
     MAX_TRADE_SIZE_USDT: process.env.MAX_TRADE_SIZE_USDT,
     UNISWAP_POLL_INTERVAL_MS: process.env.UNISWAP_POLL_INTERVAL_MS,

@@ -1,68 +1,94 @@
-import axios from 'axios';
+import ccxt from 'ccxt';
 import { EventEmitter } from 'events';
-import { RawLatokenTicker, LatokenTickerEvent } from './schemas';
+import { LatokenTickerEvent } from './schemas';
 
 // ============================================================================
-// Latoken REST API Client
-// Polls market data and normalizes to internal schema
+// LATOKEN REST Client using CCXT
+// Polls market data via REST API (no STOMP WebSocket complexity)
 // ============================================================================
 
 interface LatokenClientOptions {
-  apiUrl: string;
-  apiKey: string;
-  apiSecret: string;
+  apiKey?: string;
+  apiSecret?: string;
   symbols: string[];
   pollIntervalMs: number;
   onLog: (level: string, event: string, data?: Record<string, unknown>) => void;
 }
 
+interface PairInfo {
+  ccxtSymbol: string;
+  internalSymbol: string;
+  pairId: string;
+}
+
 export class LatokenClient extends EventEmitter {
-  private readonly apiUrl: string;
-  private readonly apiKey: string;
-  private readonly apiSecret: string;
+  private readonly exchange: ccxt.latoken;
   private readonly symbols: string[];
   private readonly pollIntervalMs: number;
   private readonly onLog: LatokenClientOptions['onLog'];
   
   private pollTimer: NodeJS.Timeout | null = null;
-  private isRunning = false;
+  private _isRunning = false;
   private lastDataTs: string | null = null;
+  private pairMap: Map<string, PairInfo> = new Map();
+  private initError: string | null = null;
 
   constructor(options: LatokenClientOptions) {
     super();
-    this.apiUrl = options.apiUrl;
-    this.apiKey = options.apiKey;
-    this.apiSecret = options.apiSecret;
-    this.symbols = options.symbols;
+    this.symbols = options.symbols.map(s => s.toLowerCase());
     this.pollIntervalMs = options.pollIntervalMs;
     this.onLog = options.onLog;
+    
+    // Initialize CCXT exchange (public API only for now)
+    this.exchange = new ccxt.latoken({
+      apiKey: options.apiKey,
+      secret: options.apiSecret,
+      enableRateLimit: true,
+    });
   }
 
   get lastDataTimestamp(): string | null {
     return this.lastDataTs;
   }
 
-  start(): void {
-    if (this.isRunning) {
+  get isRunning(): boolean {
+    return this._isRunning;
+  }
+
+  get initializationError(): string | null {
+    return this.initError;
+  }
+
+  async start(): Promise<void> {
+    if (this._isRunning) {
       this.onLog('warn', 'start_skipped', { reason: 'already running' });
       return;
     }
 
-    this.isRunning = true;
+    this._isRunning = true;
     this.onLog('info', 'starting', { symbols: this.symbols, intervalMs: this.pollIntervalMs });
     
+    // Discover pairs first
+    await this.discoverPairs();
+    
+    if (this.pairMap.size === 0) {
+      this.onLog('error', 'no_pairs_found', { symbols: this.symbols });
+      this.initError = 'No matching pairs found on LATOKEN';
+      return;
+    }
+    
     // Start polling
-    this.poll();
+    await this.poll();
     this.pollTimer = setInterval(() => this.poll(), this.pollIntervalMs);
   }
 
   stop(): void {
-    if (!this.isRunning) {
+    if (!this._isRunning) {
       this.onLog('warn', 'stop_skipped', { reason: 'not running' });
       return;
     }
 
-    this.isRunning = false;
+    this._isRunning = false;
     this.onLog('info', 'stopping');
     
     if (this.pollTimer) {
@@ -71,86 +97,98 @@ export class LatokenClient extends EventEmitter {
     }
   }
 
+  private async discoverPairs(): Promise<void> {
+    try {
+      this.onLog('info', 'discovering_pairs', { symbols: this.symbols });
+      
+      // Load markets from LATOKEN
+      const markets = await this.exchange.loadMarkets();
+      
+      for (const symbol of this.symbols) {
+        // Parse our internal symbol format (e.g., "csr_usdt")
+        const [base, quote] = symbol.split('_').map(s => s.toUpperCase());
+        const ccxtSymbol = `${base}/${quote}`;
+        
+        if (markets[ccxtSymbol]) {
+          const market = markets[ccxtSymbol];
+          this.pairMap.set(symbol, {
+            ccxtSymbol,
+            internalSymbol: symbol,
+            pairId: market.id,
+          });
+          this.onLog('info', 'pair_discovered', {
+            internalSymbol: symbol,
+            ccxtSymbol,
+            pairId: market.id,
+          });
+        } else {
+          this.onLog('warn', 'pair_not_found', {
+            symbol,
+            ccxtSymbol,
+            availableCount: Object.keys(markets).length,
+          });
+        }
+      }
+      
+      this.onLog('info', 'pair_discovery_complete', {
+        found: this.pairMap.size,
+        requested: this.symbols.length,
+      });
+      
+    } catch (error) {
+      this.onLog('error', 'pair_discovery_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.initError = `Pair discovery failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   private async poll(): Promise<void> {
+    for (const [internalSymbol, pairInfo] of this.pairMap) {
+      await this.fetchTicker(internalSymbol, pairInfo);
+    }
+  }
+
+  private async fetchTicker(internalSymbol: string, pairInfo: PairInfo): Promise<void> {
     const now = new Date().toISOString();
     
     try {
-      // Poll each symbol
-      for (const symbol of this.symbols) {
-        await this.fetchTicker(symbol, now);
-      }
+      const ticker = await this.exchange.fetchTicker(pairInfo.ccxtSymbol);
+      
+      this.lastDataTs = now;
+      
+      const normalized: LatokenTickerEvent = {
+        type: 'latoken.ticker',
+        symbol: internalSymbol,
+        ts: now,
+        bid: ticker.bid ?? 0,
+        ask: ticker.ask ?? 0,
+        last: ticker.last ?? 0,
+        volume_24h: ticker.quoteVolume ?? ticker.baseVolume ?? 0,
+        source_ts: ticker.timestamp ? new Date(ticker.timestamp).toISOString() : undefined,
+      };
+      
+      this.onLog('debug', 'ticker_fetched', {
+        symbol: internalSymbol,
+        bid: normalized.bid,
+        ask: normalized.ask,
+        last: normalized.last,
+      });
+      
+      this.emit('ticker', normalized);
+      
     } catch (error) {
-      this.onLog('error', 'poll_error', { 
-        error: error instanceof Error ? error.message : String(error) 
+      this.onLog('warn', 'fetch_ticker_error', {
+        symbol: internalSymbol,
+        pairId: pairInfo.pairId,
+        error: error instanceof Error ? error.message : String(error),
       });
       this.emit('error');
     }
   }
 
-  private async fetchTicker(symbol: string, ts: string): Promise<void> {
-    try {
-      // NOTE: This is a placeholder implementation
-      // Actual Latoken API endpoints need to be documented
-      // For now, we'll simulate with a mock response structure
-      
-      const url = `${this.apiUrl}/v1/ticker?symbol=${symbol}`;
-      const response = await axios.get(url, {
-        headers: {
-          'X-API-Key': this.apiKey,
-          // Add signature headers if required by Latoken
-        },
-        timeout: 5000,
-      });
-
-      const raw = response.data;
-      this.onLog('debug', 'raw_response', { symbol, data: raw });
-
-      // Normalize to internal schema
-      const normalized = this.normalizeTickerData(raw, symbol, ts);
-      this.emit('ticker', normalized);
-      
-    } catch (error) {
-      this.onLog('warn', 'fetch_ticker_error', { 
-        symbol, 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      
-      // Emit a mock ticker with error indication so strategy can see the issue
-      const errorTicker: LatokenTickerEvent = {
-        type: 'latoken.ticker',
-        symbol: symbol.toLowerCase(),
-        ts,
-        bid: 0,
-        ask: 0,
-        last: 0,
-        volume_24h: 0,
-      };
-      this.emit('ticker', errorTicker);
-    }
-  }
-
-  private normalizeTickerData(
-    raw: any,
-    symbol: string,
-    receiveTs: string
-  ): LatokenTickerEvent {
-    // EXPERIMENTAL: Normalize based on assumed Latoken response format
-    // This will need to be adjusted based on actual API documentation
-    
-    const price = parseFloat(raw.price || '0');
-    const bid = parseFloat(raw.bid || raw.price || '0');
-    const ask = parseFloat(raw.ask || raw.price || '0');
-    const volume = parseFloat(raw.volume || '0');
-    
-    return {
-      type: 'latoken.ticker',
-      symbol: symbol.toLowerCase(),
-      ts: receiveTs,
-      bid,
-      ask,
-      last: price,
-      volume_24h: volume,
-      source_ts: raw.timestamp ? new Date(raw.timestamp).toISOString() : undefined,
-    };
+  // Get available pairs for health endpoint
+  getAvailablePairs(): string[] {
+    return Array.from(this.pairMap.keys());
   }
 }

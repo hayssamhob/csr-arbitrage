@@ -79,7 +79,7 @@ export const StrategyDecisionSchema = z.object({
       cex_fee_bps: z.number(),
       dex_lp_fee_bps: z.number(),
       gas_cost_bps: z.number(),
-      network_fee_bps: z.number(),
+      rebalance_bps: z.number(),
       slippage_bps: z.number(),
     })
     .optional(),

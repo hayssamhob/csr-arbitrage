@@ -3,8 +3,7 @@ import { Config } from './config';
 import { LatokenClient } from './latokenClient';
 
 // ============================================================================
-// Health endpoints for Latoken Gateway
-// Per architecture.md: /health, /ready, /metrics (optional)
+// Health endpoints for LATOKEN Gateway
 // ============================================================================
 
 interface HealthState {
@@ -15,7 +14,8 @@ interface HealthState {
   is_stale: boolean;
   running: boolean;
   symbols: string[];
-  subscription_errors?: Record<string, string>;
+  available_pairs: string[];
+  init_error: string | null;
 }
 
 export function createHealthServer(
@@ -25,7 +25,6 @@ export function createHealthServer(
 ): Express {
   const app = express();
 
-  // Health check - basic liveness
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ 
       status: 'ok', 
@@ -34,7 +33,6 @@ export function createHealthServer(
     });
   });
 
-  // Ready check - detailed health including staleness
   app.get('/ready', (_req: Request, res: Response) => {
     const now = Date.now();
     const lastTs = client.lastDataTimestamp;
@@ -43,7 +41,7 @@ export function createHealthServer(
     const isStale = stalenessMs > config.MAX_STALENESS_SECONDS * 1000;
 
     let status: HealthState['status'] = 'healthy';
-    if (!client.isRunning) {
+    if (!client.isRunning || client.initializationError) {
       status = 'unhealthy';
     } else if (isStale) {
       status = 'degraded';
@@ -57,22 +55,21 @@ export function createHealthServer(
       is_stale: isStale,
       running: client.isRunning,
       symbols,
+      available_pairs: client.getAvailablePairs(),
+      init_error: client.initializationError,
     };
 
-    const httpStatus = status === 'healthy' ? 200 : status === 'degraded' ? 200 : 503;
-    res.status(httpStatus).json(health);
+    res.status(status === 'healthy' ? 200 : status === 'degraded' ? 200 : 503).json(health);
   });
 
-  // Metrics endpoint (simple JSON for now)
   app.get('/metrics', (_req: Request, res: Response) => {
     const lastTs = client.lastDataTimestamp;
-    const lastTsMs = lastTs ? new Date(lastTs).getTime() : 0;
-    const stalenessMs = lastTs ? Date.now() - lastTsMs : -1;
+    const stalenessMs = lastTs ? Date.now() - new Date(lastTs).getTime() : -1;
 
     res.json({
       latoken_gateway_running: client.isRunning ? 1 : 0,
       latoken_gateway_staleness_ms: stalenessMs,
-      latoken_gateway_symbols_count: symbols.length,
+      latoken_gateway_pairs_count: client.getAvailablePairs().length,
     });
   });
 
