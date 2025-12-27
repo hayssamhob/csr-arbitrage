@@ -14,7 +14,10 @@ dotenv.config();
 // Configuration
 const PORT = parseInt(process.env.PORT || '8001');
 const LBANK_GATEWAY_URL = process.env.LBANK_GATEWAY_URL || 'http://localhost:3001';
-const UNISWAP_QUOTE_URL = process.env.UNISWAP_QUOTE_URL || 'http://localhost:3002';
+const LATOKEN_GATEWAY_URL =
+  process.env.LATOKEN_GATEWAY_URL || "http://localhost:3006";
+const UNISWAP_QUOTE_URL =
+  process.env.UNISWAP_QUOTE_URL || "http://localhost:3002";
 const UNISWAP_QUOTE_CSR_URL =
   process.env.UNISWAP_QUOTE_CSR_URL || "http://localhost:3005";
 const STRATEGY_ENGINE_URL =
@@ -35,6 +38,7 @@ interface ServiceHealth {
 
 interface MarketData {
   lbank_ticker?: any;
+  latoken_ticker?: any;
   uniswap_quote?: any;
   decision?: any;
 }

@@ -169,19 +169,49 @@ function MarketCard({
           )}
         </div>
 
-        {/* CSR on LATOKEN - show clear status */}
+        {/* CSR on LATOKEN - show data if available */}
         {isCSR ? (
-          <div className="space-y-2">
-            <div className="text-yellow-400 text-sm">
-              LATOKEN: API blocked from current network
+          decision && (decision.lbank_bid || decision.lbank_ask) ? (
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Bid</span>
+                <span className="font-mono text-green-400">
+                  {decision.lbank_bid ? decision.lbank_bid.toFixed(4) : "-"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Ask</span>
+                <span className="font-mono text-red-400">
+                  {decision.lbank_ask ? decision.lbank_ask.toFixed(4) : "-"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Last</span>
+                <span className="font-mono text-white">
+                  {decision.lbank_bid && decision.lbank_ask
+                    ? ((decision.lbank_bid + decision.lbank_ask) / 2).toFixed(4)
+                    : "-"}
+                </span>
+              </div>
+              <div className="text-xs text-green-400 mt-2">
+                LATOKEN: Live data
+              </div>
             </div>
-            <div className="text-xs text-slate-500">
-              Connection refused to api.latoken.com
+          ) : (
+            <div className="space-y-2">
+              <div className="text-yellow-400 text-sm">
+                LATOKEN: No data available
+              </div>
+              <div className="text-xs text-slate-500">
+                {decision
+                  ? "Waiting for arbitrage calculation..."
+                  : "Connection issues - may be geo-restricted"}
+              </div>
+              <div className="text-xs text-blue-400 mt-2">
+                Try deploying on a server outside Indonesia
+              </div>
             </div>
-            <div className="text-xs text-blue-400 mt-2">
-              LBank: Not available via API (confirmed)
-            </div>
-          </div>
+          )
         ) : lbank ? (
           <div className="space-y-2">
             <div className="flex justify-between">

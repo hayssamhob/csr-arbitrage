@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # LBank Gateway
+  lbank-gateway:
+    build: ./services/lbank-gateway
+    ports:
+      - "3001:3001"
+      - "8080:8080"
+    environment:
+      - SYMBOLS=csr25_usdt
+      - POLL_INTERVAL_MS=2000
+      - MAX_STALENESS_SECONDS=15
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
+  # LATOKEN Gateway  
+  latoken-gateway:
+    build: ./services/latoken-gateway
+    ports:
+      - "3006:3006"
+      - "8081:8081"
+    environment:
+      - SYMBOLS=csr_usdt
+      - POLL_INTERVAL_MS=2000
+      - MAX_STALENESS_SECONDS=15
+      - LOG_LEVEL=info
+      - MOCK_MODE=false
+    restart: unless-stopped
+
+  # Uniswap Quote CSR25
+  uniswap-quote-csr25:
+    build: ./services/uniswap-quote
+    ports:
+      - "3002:3002"
+    environment:
+      - TOKEN_ADDRESS=0x46afcc847653fa391320b2bde548c59cf384b029933667c541fb730c5641778e
+      - SYMBOL=CSR25
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
+  # Uniswap Quote CSR
+  uniswap-quote-csr:
+    build: ./services/uniswap-quote
+    ports:
+      - "3005:3005"
+    environment:
+      - TOKEN_ADDRESS=0x6c76bb9f364e72fcb57819d2920550768cf43e09e819daa40fabe9c7ab057f9e
+      - SYMBOL=CSR
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
+  # Strategy Engine
+  strategy:
+    build: ./services/strategy
+    ports:
+      - "3003:3003"
+    environment:
+      - EXECUTION_MODE=off
+      - LBANK_GATEWAY_WS_URL=ws://lbank-gateway:8080
+      - LATOKEN_GATEWAY_WS_URL=ws://latoken-gateway:8081
+      - UNISWAP_QUOTE_URL=http://uniswap-quote-csr25:3002
+      - UNISWAP_QUOTE_CSR_URL=http://uniswap-quote-csr:3005
+      - SYMBOLS=csr_usdt,csr25_usdt
+      - MIN_EDGE_BPS=50
+      - LOG_LEVEL=info
+    depends_on:
+      - lbank-gateway
+      - latoken-gateway
+      - uniswap-quote-csr25
+      - uniswap-quote-csr
+    restart: unless-stopped
+
+  # Backend API
+  backend:
+    build: ./backend
+    ports:
+      - "8001:8001"
+    environment:
+      - LBANK_GATEWAY_URL=http://lbank-gateway:3001
+      - LATOKEN_GATEWAY_URL=http://latoken-gateway:3006
+      - UNISWAP_QUOTE_URL=http://uniswap-quote-csr25:3002
+      - UNISWAP_QUOTE_CSR_URL=http://uniswap-quote-csr:3005
+      - STRATEGY_ENGINE_URL=http://strategy:3003
+    depends_on:
+      - lbank-gateway
+      - latoken-gateway
+      - strategy
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8001
+    depends_on:
+      - backend
+    restart: unless-stopped
