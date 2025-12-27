@@ -480,7 +480,7 @@ function App() {
                   </div>
                 ) : (
                   <div className="text-green-400 text-sm mt-2">
-                    Uniswap price: OK (v4 pool state)
+                    Uniswap price: OK (v4 stateview)
                   </div>
                 )}
                 <div className="text-xs text-slate-500 mt-2">
@@ -522,6 +522,28 @@ function App() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Chain</span>
+                  <span className="font-mono">
+                    Ethereum (ID: {data.market_state.uniswap_quote_csr.chain_id}
+                    )
+                  </span>
+                </div>
+                {data.market_state.uniswap_quote_csr.error ? (
+                  <div className="text-yellow-400 text-sm mt-2">
+                    {data.market_state.uniswap_quote_csr.error ===
+                    "Pool not found"
+                      ? "Uniswap price: unavailable (v4 pool not found)"
+                      : `Uniswap price: ${data.market_state.uniswap_quote_csr.error.toLowerCase()}`}
+                  </div>
+                ) : (
+                  <div className="text-green-400 text-sm mt-2">
+                    Uniswap price: OK (v4 pool state)
+                  </div>
+                )}
+                <div className="text-xs text-slate-500 mt-2">
+                  Updated: {timeAgo(data.market_state.uniswap_quote_csr.ts)}
+                </div>
+              </div>
+            ) : (
               <div className="text-slate-500">No data available</div>
             )}
           </div>

@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { Config, TokenConfig } from "./config";
 import { CachedQuote, UniswapQuoteResult } from "./schemas";
-import { V4PoolReader } from "./v4PoolReader";
+import { V4StateViewReader } from "./v4StateViewReader";
 
 // ============================================================================
 // Uniswap Quote Service - Simplified Implementation
@@ -32,7 +32,7 @@ export class QuoteService {
   private consecutiveFailures = 0;
   private readonly onLog: LogFn;
   private poolId: string;
-  private v4Reader: V4PoolReader;
+  private v4Reader: V4StateViewReader;
 
   constructor(config: Config, onLog: LogFn) {
     this.chainId = config.CHAIN_ID;
@@ -42,10 +42,10 @@ export class QuoteService {
     // Initialize provider - REAL ON-CHAIN DATA ONLY
     this.provider = new ethers.providers.JsonRpcProvider(config.RPC_URL);
 
-    // Initialize V4 pool reader
-    this.v4Reader = new V4PoolReader(
+    // Initialize V4 StateView reader
+    this.v4Reader = new V4StateViewReader(
       this.provider,
-      config.UNISWAP_V4_MANAGER_ADDRESS
+      "0x7ffe42c4a5deea5b0fec41c94c136cf115597227"
     );
 
     // Initialize tokens from config
@@ -61,12 +61,12 @@ export class QuoteService {
       throw new Error(`Unsupported token: ${this.tokenOut.symbol}`);
     }
 
-    this.onLog("info", "uniswap_v4_quote_service_initialized", {
+    this.onLog("info", "uniswap_v4_stateview_service_initialized", {
       chainId: this.chainId,
       tokenIn: this.tokenIn.symbol,
       tokenOut: this.tokenOut.symbol,
       poolId: this.poolId,
-      managerAddress: config.UNISWAP_V4_MANAGER_ADDRESS,
+      source: "uniswap_v4_stateview",
     });
   }
 
@@ -144,7 +144,7 @@ export class QuoteService {
   ): Promise<UniswapQuoteResult> {
     const now = new Date().toISOString();
 
-    // Read real v4 pool state
+    // Read real v4 pool state from StateView
     const poolState = await this.v4Reader.readPoolState(
       this.poolId,
       this.tokenIn,
@@ -152,7 +152,7 @@ export class QuoteService {
     );
 
     if (!poolState.exists) {
-      this.onLog("warn", "pool_not_found", {
+      this.onLog("warn", "pool_not_found_in_stateview", {
         poolId: this.poolId,
         token: this.tokenOut.symbol,
       });
@@ -171,7 +171,7 @@ export class QuoteService {
         error: "Pool not found",
         is_stale: true,
         validated: false,
-        source: "uniswap_v4_pool_state",
+        source: "uniswap_v4_stateview",
       };
     }
 
@@ -206,13 +206,13 @@ export class QuoteService {
         error: "Price out of bounds",
         is_stale: true,
         validated: false,
-        source: "uniswap_v4_pool_state",
+        source: "uniswap_v4_stateview",
       };
     }
 
     // Log successful quote
-    this.onLog("info", "v4_pool_quote", {
-      source: "uniswap_v4_pool_state",
+    this.onLog("info", "v4_stateview_quote", {
+      source: "uniswap_v4_stateview",
       token: this.tokenOut.symbol,
       poolId: this.poolId,
       price: poolState.price,
@@ -240,7 +240,7 @@ export class QuoteService {
       },
       is_stale: false,
       validated: true,
-      source: "uniswap_v4_pool_state",
+      source: "uniswap_v4_stateview",
     };
   }
 
