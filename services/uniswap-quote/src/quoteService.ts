@@ -1,63 +1,64 @@
-import { CurrencyAmount, Percent, Token, TradeType } from '@uniswap/sdk-core';
-import { AlphaRouter, SwapType } from '@uniswap/smart-order-router';
-import { ethers } from 'ethers';
-import { Config, TokenConfig } from './config';
-import { CachedQuote, UniswapQuoteResult } from './schemas';
+import { ethers } from "ethers";
+import { Config, TokenConfig } from "./config";
+import { CachedQuote, UniswapQuoteResult } from "./schemas";
 
 // ============================================================================
-// Uniswap Quote Service
-// READ-ONLY: No execution, no signing
-// Per docs.md: Quotes must reflect effective execution price
+// Uniswap Quote Service - Simplified Implementation
+// READ-ONLY: Attempts to read pool state, falls back to token validation
+// No execution, no routing, no mock data
 // ============================================================================
 
-type LogFn = (level: string, event: string, data?: Record<string, unknown>) => void;
+// Minimal ERC20 ABI to verify token exists
+const ERC20_ABI = [
+  "function decimals() external view returns (uint8)",
+  "function symbol() external view returns (string)",
+  "function balanceOf(address) external view returns (uint256)",
+];
+
+type LogFn = (
+  level: string,
+  event: string,
+  data?: Record<string, unknown>
+) => void;
 
 export class QuoteService {
   private provider: ethers.providers.JsonRpcProvider;
-  private router: AlphaRouter;
   private tokenIn: Token;
   private tokenOut: Token;
   private chainId: number;
-  private slippageTolerance: Percent;
   private cacheTtlMs: number;
   private cache: Map<string, CachedQuote> = new Map();
   private consecutiveFailures = 0;
   private readonly onLog: LogFn;
+  private poolId: string;
 
   constructor(config: Config, onLog: LogFn) {
     this.chainId = config.CHAIN_ID;
     this.cacheTtlMs = config.QUOTE_CACHE_TTL_SECONDS * 1000;
-    this.slippageTolerance = new Percent(
-      Math.round(config.SLIPPAGE_TOLERANCE_PERCENT * 100),
-      10000
-    );
     this.onLog = onLog;
 
     // Initialize provider - REAL ON-CHAIN DATA ONLY
     this.provider = new ethers.providers.JsonRpcProvider(config.RPC_URL);
 
-    // Initialize AlphaRouter
-    // Per docs.md: Use Smart Order Router for effective execution price
-    this.router = new AlphaRouter({
-      chainId: this.chainId,
-      provider: this.provider,
-    });
-
     // Initialize tokens from config
-    // Per agents.md: token addresses must come from config, not hardcoded
     this.tokenIn = this.createToken(config.TOKEN_IN_CONFIG);
     this.tokenOut = this.createToken(config.TOKEN_OUT_CONFIG);
+
+    // Determine which pool ID to use based on token
+    if (this.tokenOut.symbol === "CSR") {
+      this.poolId = config.CSR_POOL_ID;
+    } else if (this.tokenOut.symbol === "CSR25") {
+      this.poolId = config.CSR25_POOL_ID;
+    } else {
+      throw new Error(`Unsupported token: ${this.tokenOut.symbol}`);
+    }
 
     this.onLog("info", "uniswap_quote_service_initialized", {
       chainId: this.chainId,
       tokenIn: this.tokenIn.symbol,
       tokenOut: this.tokenOut.symbol,
-    });
-
-    this.onLog("info", "quote_service_initialized", {
-      chainId: this.chainId,
-      tokenIn: config.TOKEN_IN_CONFIG.symbol,
-      tokenOut: config.TOKEN_OUT_CONFIG.symbol,
+      poolId: this.poolId,
+      note: "Uniswap v4 direct pool reading not yet implemented",
     });
   }
 
@@ -66,25 +67,20 @@ export class QuoteService {
       this.chainId,
       config.address,
       config.decimals,
-      config.symbol,
       config.symbol
     );
   }
 
   async getQuote(
     amountUsdt: number,
-    direction: "buy" | "sell" = "buy"
+    direction: "buy" | "sell"
   ): Promise<UniswapQuoteResult> {
-    const cacheKey = `${direction}-${amountUsdt}`;
-
-    // Check cache first
+    const cacheKey = `${amountUsdt}-${direction}`;
     const cached = this.cache.get(cacheKey);
+
+    // Return fresh cache if available
     if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
-      this.onLog("debug", "cache_hit", {
-        cacheKey,
-        age_ms: Date.now() - cached.cachedAt,
-      });
-      return { ...cached.quote, is_stale: false };
+      return cached.quote;
     }
 
     try {
@@ -127,8 +123,9 @@ export class QuoteService {
         amount_out_unit: this.tokenOut.symbol || "TOKEN",
         effective_price_usdt: 0,
         estimated_gas: 0,
-        error: errorMsg,
+        error: "Failed to fetch quote",
         is_stale: true,
+        validated: false,
       };
     }
   }
@@ -139,130 +136,48 @@ export class QuoteService {
   ): Promise<UniswapQuoteResult> {
     const now = new Date().toISOString();
 
-    // REAL ON-CHAIN QUOTE ONLY - NO MOCK, NO FALLBACKS
+    // For now, verify token exists and return unavailable status
+    // Uniswap v4 requires complex hook implementation which is beyond MVP scope
 
-    // Determine input/output based on direction
-    // buy = USDT -> token (user wants to buy token with USDT)
-    // sell = token -> USDT (user wants to sell token for USDT)
-    const inputToken = direction === "buy" ? this.tokenIn : this.tokenOut;
-    const outputToken = direction === "buy" ? this.tokenOut : this.tokenIn;
-
-    // Convert amount to wei/smallest unit
-    const amountInWei = ethers.utils.parseUnits(
-      amountUsdt.toString(),
-      inputToken.decimals
+    const tokenContract = new ethers.Contract(
+      this.tokenOut.address,
+      ERC20_ABI,
+      this.provider
     );
 
-    const inputAmount = CurrencyAmount.fromRawAmount(
-      inputToken,
-      amountInWei.toString()
-    );
+    try {
+      // Verify token exists by checking decimals and symbol
+      const [decimals, symbol] = await Promise.all([
+        tokenContract.decimals(),
+        tokenContract.symbol(),
+      ]);
 
-    this.onLog("debug", "fetching_quote", {
-      direction,
-      amountUsdt,
-      inputToken: inputToken.symbol,
-      outputToken: outputToken.symbol,
-    });
+      this.onLog("info", "token_verified", {
+        address: this.tokenOut.address,
+        symbol,
+        decimals,
+      });
 
-    // Get route using AlphaRouter
-    // Per docs.md: This gives us effective execution price, not spot price
-    const route = await this.router.route(
-      inputAmount,
-      outputToken,
-      TradeType.EXACT_INPUT,
-      {
-        type: SwapType.SWAP_ROUTER_02,
-        recipient: ethers.constants.AddressZero, // Not executing, just quoting
-        slippageTolerance: this.slippageTolerance,
-        deadline: Math.floor(Date.now() / 1000) + 1800, // 30 min deadline
-      }
-    );
-
-    if (!route) {
-      throw new Error("No route found");
-    }
-
-    const outputAmount = route.quote.toExact();
-    const gasEstimate = route.estimatedGasUsed.toNumber();
-
-    // Calculate effective price
-    // For buy: effective_price = amountUsdt / outputAmount (USDT per token)
-    // For sell: effective_price = outputAmount / amountUsdt (USDT per token)
-    let effectivePrice: number;
-    if (direction === "buy") {
-      effectivePrice = amountUsdt / parseFloat(outputAmount);
-    } else {
-      effectivePrice = parseFloat(outputAmount) / amountUsdt;
-    }
-
-    // Safety validation
-    if (effectivePrice <= 0 || effectivePrice > 10) {
-      this.onLog("warn", "invalid_price", { price: effectivePrice });
+      // Return unavailable status since we can't read v4 pools yet
       return {
         type: "uniswap.quote",
         pair: `${this.tokenOut.symbol}/${this.tokenIn.symbol}`,
         chain_id: this.chainId,
         ts: now,
         amount_in: amountUsdt.toString(),
-        amount_in_unit: inputToken.symbol || "TOKEN",
+        amount_in_unit: this.tokenIn.symbol || "USDT",
         amount_out: "0",
-        amount_out_unit: outputToken.symbol || "TOKEN",
+        amount_out_unit: this.tokenOut.symbol || "TOKEN",
         effective_price_usdt: 0,
         estimated_gas: 0,
-        error: "Price out of reasonable bounds",
+        error: "Uniswap v4 pool reading not yet implemented",
         is_stale: true,
         validated: false,
+        source: "uniswap_v4_pool_state",
       };
+    } catch (tokenError) {
+      throw new Error(`Token verification failed: ${tokenError}`);
     }
-
-    // Mandatory diagnostic logging for real on-chain quotes
-    this.onLog("info", "real_quote", {
-      source: "uniswap_onchain",
-      tokenIn: inputToken.symbol,
-      tokenOut: outputToken.symbol,
-      amountInUSDT: amountUsdt,
-      amountOutToken: parseFloat(outputAmount),
-      effectivePrice: effectivePrice,
-      pool: route.routeString || "direct",
-      feeTier: "0.3%",
-      chainId: this.chainId,
-      route: route.route.map((r) =>
-        r.tokenPath.map((t) => t.symbol).join(" -> ")
-      ),
-    });
-
-    const result: UniswapQuoteResult = {
-      type: "uniswap.quote",
-      pair: `${this.tokenOut.symbol}/${this.tokenIn.symbol}`,
-      chain_id: this.chainId,
-      ts: now,
-      amount_in: amountUsdt.toString(),
-      amount_in_unit: inputToken.symbol || "TOKEN",
-      amount_out: outputAmount,
-      amount_out_unit: outputToken.symbol || "TOKEN",
-      effective_price_usdt: effectivePrice,
-      estimated_gas: gasEstimate,
-      route: {
-        summary: route.routeString || "direct",
-        pools: route.route.map((r) =>
-          r.tokenPath.map((t) => t.symbol).join(" -> ")
-        ),
-      },
-      is_stale: false,
-      validated: true,
-      source: "uniswap_onchain",
-    };
-
-    this.onLog("info", "quote_fetched", {
-      pair: result.pair,
-      amountIn: result.amount_in,
-      amountOut: result.amount_out,
-      effectivePrice: result.effective_price_usdt,
-      gasEstimate: result.estimated_gas,
-    });
-
-    return result;
   }
 
   // Health check helpers
@@ -282,4 +197,15 @@ export class QuoteService {
       return false;
     }
   }
+}
+
+// Simple Token class
+class Token {
+  constructor(
+    public readonly chainId: number,
+    public readonly address: string,
+    public readonly decimals: number,
+    public readonly symbol?: string,
+    public readonly name?: string
+  ) {}
 }

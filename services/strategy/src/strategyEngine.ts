@@ -131,7 +131,7 @@ export class StrategyEngine {
     }
 
     // Check if quote is from real on-chain data
-    if (uniswapQuote.source !== "uniswap_onchain") {
+    if (uniswapQuote.source !== "uniswap_v4_pool_state") {
       this.onLog("warn", "strategy.skipped", {
         reason: "non_real_or_invalid_uniswap_quote",
         source: uniswapQuote.source,

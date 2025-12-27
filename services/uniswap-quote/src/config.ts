@@ -43,6 +43,15 @@ const ConfigSchema = z.object({
   // Slippage tolerance (as percentage, e.g., 0.5 = 0.5%)
   SLIPPAGE_TOLERANCE_PERCENT: z.coerce.number().min(0).max(50).default(0.5),
 
+  // Uniswap v4 pool IDs (64 characters)
+  CSR_POOL_ID: z.string().regex(/^0x[a-fA-F0-9]{64}$/, "Invalid pool ID"),
+  CSR25_POOL_ID: z.string().regex(/^0x[a-fA-F0-9]{64}$/, "Invalid pool ID"),
+
+  // Uniswap v4 Manager contract
+  UNISWAP_V4_MANAGER_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid contract address"),
+
   // Log level
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -61,6 +70,9 @@ export function loadConfig(): Config {
     HTTP_PORT: process.env.HTTP_PORT,
     MAX_STALENESS_SECONDS: process.env.MAX_STALENESS_SECONDS,
     SLIPPAGE_TOLERANCE_PERCENT: process.env.SLIPPAGE_TOLERANCE_PERCENT,
+    CSR_POOL_ID: process.env.CSR_POOL_ID,
+    CSR25_POOL_ID: process.env.CSR25_POOL_ID,
+    UNISWAP_V4_MANAGER_ADDRESS: process.env.UNISWAP_V4_MANAGER_ADDRESS,
     LOG_LEVEL: process.env.LOG_LEVEL,
   };
 
