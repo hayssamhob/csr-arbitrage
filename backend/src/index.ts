@@ -317,8 +317,61 @@ app.get('/api/dashboard', (req, res) => {
   res.json(dashboardData);
 });
 
+// Orchestrator API: /api/state - unified market state
+app.get('/api/state', (req, res) => {
+  const state = {
+    ts: dashboardData.ts,
+    markets: {
+      csr_usdt: {
+        lbank: dashboardData.market_state?.csr_usdt?.lbank_ticker || null,
+        uniswap: dashboardData.market_state?.csr_usdt?.uniswap_quote || null,
+        decision: dashboardData.market_state?.csr_usdt?.decision || null,
+        freshness: {
+          lbank_age_ms: dashboardData.market_state?.csr_usdt?.lbank_ticker?.ts 
+            ? Date.now() - new Date(dashboardData.market_state.csr_usdt.lbank_ticker.ts).getTime() 
+            : null,
+          uniswap_age_ms: dashboardData.market_state?.csr_usdt?.uniswap_quote?.ts
+            ? Date.now() - new Date(dashboardData.market_state.csr_usdt.uniswap_quote.ts).getTime()
+            : null,
+        },
+      },
+      csr25_usdt: {
+        lbank: dashboardData.market_state?.csr25_usdt?.lbank_ticker || null,
+        uniswap: dashboardData.market_state?.csr25_usdt?.uniswap_quote || null,
+        decision: dashboardData.market_state?.csr25_usdt?.decision || null,
+        freshness: {
+          lbank_age_ms: dashboardData.market_state?.csr25_usdt?.lbank_ticker?.ts
+            ? Date.now() - new Date(dashboardData.market_state.csr25_usdt.lbank_ticker.ts).getTime()
+            : null,
+          uniswap_age_ms: dashboardData.market_state?.csr25_usdt?.uniswap_quote?.ts
+            ? Date.now() - new Date(dashboardData.market_state.csr25_usdt.uniswap_quote.ts).getTime()
+            : null,
+        },
+      },
+    },
+    opportunities: dashboardData.opportunities,
+  };
+  res.json(state);
+});
+
+// Orchestrator API: /api/health - aggregated health
 app.get('/api/health', (req, res) => {
   res.json(dashboardData.system_status);
+});
+
+// Orchestrator API: /api/config - sanitized config (no secrets)
+app.get('/api/config', (req, res) => {
+  res.json({
+    execution_mode: process.env.EXECUTION_MODE || 'off',
+    kill_switch: process.env.KILL_SWITCH === 'true',
+    max_order_usdt: parseFloat(process.env.MAX_ORDER_USDT || '1000'),
+    max_daily_volume_usdt: parseFloat(process.env.MAX_DAILY_VOLUME_USDT || '10000'),
+    min_edge_bps: parseFloat(process.env.MIN_EDGE_BPS || '50'),
+    max_slippage_bps: parseFloat(process.env.MAX_SLIPPAGE_BPS || '100'),
+    max_staleness_seconds: parseFloat(process.env.MAX_STALENESS_SECONDS || '30'),
+    max_concurrent_orders: parseInt(process.env.MAX_CONCURRENT_ORDERS || '1'),
+    symbols: ['csr_usdt', 'csr25_usdt'],
+  });
 });
 
 app.get('/api/market', (req, res) => {
