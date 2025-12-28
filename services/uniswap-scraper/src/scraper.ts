@@ -1,13 +1,19 @@
 import puppeteer, { Browser, Page } from "puppeteer";
+import * as fs from "fs";
+import * as path from "path";
 import { ScraperConfig } from "./config";
 import { LogFn, QuoteData, ScrapeError, TokenSymbol } from "./types";
 
+const DEBUG_DIR = "/tmp/uniswap-debug";
+
 /**
- * Robust Uniswap UI Scraper
- *
- * Uses text anchors and semantic selectors instead of brittle CSS classes.
- * Implements stable output detection with debouncing.
- * Self-healing: restarts browser on consecutive failures.
+ * Observable Uniswap UI Scraper
+ * 
+ * Priority: Visibility and non-blocking behavior
+ * - Screenshots at each stage
+ * - HTML snapshots for debugging
+ * - Fast fail (no hanging)
+ * - Proper React input dispatching
  */
 export class UniswapScraper {
   private browser: Browser | null = null;
@@ -23,6 +29,117 @@ export class UniswapScraper {
     this.onLog = onLog;
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
+    
+    // Ensure debug directory exists
+    if (!fs.existsSync(DEBUG_DIR)) {
+      fs.mkdirSync(DEBUG_DIR, { recursive: true });
+    }
+  }
+
+  /**
+   * Save screenshot for debugging
+   */
+  private async saveScreenshot(page: Page, token: TokenSymbol, stage: string): Promise<string> {
+    const filename = `${token}-${stage}-${Date.now()}.png`;
+    const filepath = path.join(DEBUG_DIR, filename);
+    try {
+      await page.screenshot({ path: filepath, fullPage: true });
+      this.onLog("debug", "screenshot_saved", { token, stage, filepath });
+      return filepath;
+    } catch (error) {
+      this.onLog("warn", "screenshot_failed", { 
+        token, stage, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      return "";
+    }
+  }
+
+  /**
+   * Save HTML snapshot for debugging
+   */
+  private async saveHtml(page: Page, token: TokenSymbol, stage: string): Promise<string> {
+    const filename = `${token}-${stage}-${Date.now()}.html`;
+    const filepath = path.join(DEBUG_DIR, filename);
+    try {
+      const content = await page.content();
+      fs.writeFileSync(filepath, content);
+      this.onLog("debug", "html_saved", { token, stage, filepath });
+      return filepath;
+    } catch (error) {
+      this.onLog("warn", "html_save_failed", { 
+        token, stage, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      return "";
+    }
+  }
+
+  /**
+   * Dismiss ALL blocking modals - run until no blockers found
+   */
+  private async dismissBlockers(page: Page, token: TokenSymbol): Promise<void> {
+    const blockerTexts = ["Accept", "I agree", "Continue", "Close", "Got it", "Dismiss", "OK"];
+    let dismissed = 0;
+    const maxIterations = 5;
+
+    for (let i = 0; i < maxIterations; i++) {
+      let foundBlocker = false;
+
+      // Try clicking buttons with blocker text
+      for (const text of blockerTexts) {
+        try {
+          const buttons = await page.$$(`button`);
+          for (const button of buttons) {
+            const buttonText = await button.evaluate(el => el.textContent || "");
+            if (buttonText.toLowerCase().includes(text.toLowerCase())) {
+              await button.click();
+              dismissed++;
+              foundBlocker = true;
+              this.onLog("debug", "blocker_clicked", { token, text: buttonText });
+              await page.waitForTimeout(300);
+            }
+          }
+        } catch {
+          // Button might have disappeared
+        }
+      }
+
+      // Try to close any modal overlays
+      try {
+        await page.evaluate(() => {
+          // Remove overflow:hidden from body
+          document.body.style.overflow = "auto";
+          
+          // Try to find and click close buttons on modals
+          const closeSelectors = [
+            '[aria-label="Close"]',
+            '[data-testid="close-icon"]',
+            'button[aria-label*="close"]',
+            '.modal-close',
+          ];
+          for (const sel of closeSelectors) {
+            const el = document.querySelector(sel) as HTMLElement;
+            if (el) {
+              el.click();
+            }
+          }
+          
+          // Hide modal overlays
+          const overlays = document.querySelectorAll('[class*="overlay"], [class*="modal"], [class*="backdrop"]');
+          overlays.forEach(el => {
+            (el as HTMLElement).style.display = "none";
+          });
+        });
+      } catch {
+        // Ignore errors
+      }
+
+      if (!foundBlocker) break;
+      await page.waitForTimeout(200);
+    }
+
+    this.onLog("info", "blockers_dismissed", { token, count: dismissed });
   }
 
   async initialize(): Promise<void> {
@@ -51,16 +168,14 @@ export class UniswapScraper {
     if (!this.browser) throw new Error("Browser not initialized");
 
     const page = await this.browser.newPage();
-
-    // Set user agent
     await page.setUserAgent(this.config.userAgent);
 
-    // Block unnecessary resources to speed up loading
+    // Don't block stylesheets - we need to see the UI properly
     if (this.config.blockResources) {
       await page.setRequestInterception(true);
       page.on("request", (req) => {
         const resourceType = req.resourceType();
-        if (["image", "font", "media", "stylesheet"].includes(resourceType)) {
+        if (["image", "font", "media"].includes(resourceType)) {
           req.abort();
         } else {
           req.continue();
@@ -68,7 +183,6 @@ export class UniswapScraper {
       });
     }
 
-    // Navigate to Uniswap swap page
     const url = this.config.tokens[token];
     this.onLog("info", "page_navigating", { token, url });
 
@@ -78,13 +192,17 @@ export class UniswapScraper {
         timeout: this.config.uniswapTimeoutMs,
       });
 
-      // Handle consent modals
-      if (this.config.consentAutoAccept) {
-        await this.handleConsentModals(page);
-      }
+      // Save debug artifacts after load
+      await this.saveScreenshot(page, token, "01-after-load");
+      await this.saveHtml(page, token, "01-after-load");
+      
+      this.onLog("info", "page_loaded", { token });
+
+      // Dismiss blockers
+      await this.dismissBlockers(page, token);
+      await this.saveScreenshot(page, token, "02-after-blockers");
 
       this.pages.set(token, page);
-      this.onLog("info", "page_loaded", { token });
     } catch (error) {
       this.onLog("error", "page_load_failed", {
         token,
@@ -94,109 +212,97 @@ export class UniswapScraper {
     }
   }
 
-  private async handleConsentModals(page: Page): Promise<void> {
-    try {
-      // Wait briefly for any modal to appear
-      await page.waitForTimeout(1000);
-
-      // Try multiple selectors for consent/cookie buttons
-      const consentSelectors = [
-        'button:has-text("Accept")',
-        'button:has-text("I understand")',
-        'button:has-text("Got it")',
-        '[data-testid="web3-status-connected"]',
-        'button[aria-label="Close"]',
-      ];
-
-      for (const selector of consentSelectors) {
-        try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            this.onLog("debug", "consent_clicked", { selector });
-            await page.waitForTimeout(500);
-          }
-        } catch {
-          // Ignore - selector might not exist
-        }
-      }
-    } catch {
-      // Consent handling is best-effort
-    }
-  }
-
   /**
-   * Scrape quote for a specific token and amount
-   * Uses robust selectors based on text anchors
+   * Scrape quote - non-blocking, fast fail
    */
-  async scrapeQuote(
-    token: TokenSymbol,
-    amountUsdt: number
-  ): Promise<QuoteData> {
+  async scrapeQuote(token: TokenSymbol, amountUsdt: number): Promise<QuoteData> {
     const page = this.pages.get(token);
     if (!page) {
-      return this.createInvalidQuote(
-        token,
-        amountUsdt,
-        "selector_missing",
-        "Page not initialized"
-      );
+      return this.createInvalidQuote(token, amountUsdt, "selector_missing", "Page not initialized");
     }
 
     const startTime = Date.now();
+    const maxDuration = 10000; // 10 second max per quote
 
     try {
-      // Find and clear the input field using multiple strategies
-      const inputValue = await this.setInputAmount(page, amountUsdt);
-      if (!inputValue) {
-        return this.createInvalidQuote(
-          token,
-          amountUsdt,
-          "selector_missing",
-          "Could not find input field"
-        );
+      // Step 1: Find input field
+      this.onLog("debug", "finding_input", { token, amountUsdt });
+      
+      const inputSelector = 'input[inputmode="decimal"]';
+      const inputs = await page.$$(inputSelector);
+      
+      if (inputs.length === 0) {
+        await this.saveScreenshot(page, token, `03-no-inputs-${amountUsdt}`);
+        return this.createInvalidQuote(token, amountUsdt, "selector_missing", "No decimal inputs found");
       }
 
-      // Wait for quote to stabilize (same value 2-3 times over 500ms)
-      const outputAmount = await this.waitForStableOutput(page);
-      if (outputAmount === null) {
-        return this.createInvalidQuote(
-          token,
-          amountUsdt,
-          "timeout",
-          "Output did not stabilize"
-        );
+      this.onLog("info", "input_field_found", { token, inputCount: inputs.length });
+
+      // Use first input (the "You pay" field)
+      const inputField = inputs[0];
+
+      // Step 2: Get current output value (before setting input)
+      const outputBefore = await this.getOutputValue(page);
+      this.onLog("debug", "output_before", { token, outputBefore });
+
+      // Step 3: Set input value with proper React dispatching
+      this.onLog("debug", "setting_input", { token, amountUsdt });
+      
+      // Clear the input
+      await inputField.click({ clickCount: 3 });
+      await page.keyboard.press("Backspace");
+      
+      // Type the value
+      await inputField.type(amountUsdt.toString(), { delay: 30 });
+      
+      // Dispatch React events
+      await inputField.evaluate((el, value) => {
+        const input = el as HTMLInputElement;
+        
+        // Set value directly
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, "value"
+        )?.set;
+        if (nativeInputValueSetter) {
+          nativeInputValueSetter.call(input, value);
+        }
+        
+        // Dispatch events
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.blur();
+      }, amountUsdt.toString());
+
+      this.onLog("info", "input_value_set", { token, amountUsdt });
+      await this.saveScreenshot(page, token, `04-after-input-${amountUsdt}`);
+
+      // Step 4: Wait for output to change (max 5 seconds, no hanging)
+      this.onLog("debug", "waiting_for_output", { token });
+      
+      const outputAfter = await this.waitForOutputChange(page, outputBefore, 5000);
+      
+      if (outputAfter === null) {
+        this.onLog("warn", "output_unchanged", { token, amountUsdt, outputBefore });
+        await this.saveScreenshot(page, token, `05-output-unchanged-${amountUsdt}`);
+        return this.createInvalidQuote(token, amountUsdt, "timeout", "Output did not change");
       }
 
-      if (outputAmount <= 0) {
-        return this.createInvalidQuote(
-          token,
-          amountUsdt,
-          "ui_changed",
-          "Invalid output amount"
-        );
-      }
+      this.onLog("info", "output_changed", { token, outputBefore, outputAfter });
 
-      // Extract gas estimate
-      const gasEstimate = await this.extractGasEstimate(page);
-
-      // Extract route info
-      const route = await this.extractRoute(page);
-
-      // Calculate effective price
-      const effectivePrice = amountUsdt / outputAmount;
-
-      // Success - reset failure counter
+      // Step 5: Calculate effective price
+      const effectivePrice = amountUsdt / outputAfter;
+      
+      // Success
       this.consecutiveFailures.set(token, 0);
       this.lastSuccessTs = Date.now();
 
+      const duration = Date.now() - startTime;
       this.onLog("info", "quote_scraped", {
         token,
         amountUsdt,
-        outputAmount,
+        outputAfter,
         effectivePrice,
-        gasEstimate,
-        durationMs: Date.now() - startTime,
+        durationMs: duration,
       });
 
       return {
@@ -204,304 +310,86 @@ export class UniswapScraper {
         inputToken: "USDT",
         outputToken: token,
         amountInUSDT: amountUsdt,
-        amountOutToken: outputAmount.toFixed(8),
+        amountOutToken: outputAfter.toFixed(8),
         effectivePriceUsdtPerToken: effectivePrice,
-        gasEstimateUsdt: gasEstimate,
-        route,
+        gasEstimateUsdt: 0, // TODO: extract from UI
+        route: "Uniswap UI",
         ts: Math.floor(Date.now() / 1000),
         valid: true,
       };
+
     } catch (error) {
+      const duration = Date.now() - startTime;
       const failures = (this.consecutiveFailures.get(token) || 0) + 1;
       this.consecutiveFailures.set(token, failures);
-
-      const scrapeError: ScrapeError = {
-        type: "unknown",
-        message: error instanceof Error ? error.message : String(error),
-        timestamp: Date.now(),
-      };
-      this.recentErrors.push(scrapeError);
-      // Keep only last 5 minutes of errors
-      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-      this.recentErrors = this.recentErrors.filter(
-        (e) => e.timestamp > fiveMinAgo
-      );
 
       this.onLog("error", "scrape_failed", {
         token,
         amountUsdt,
-        error: scrapeError.message,
+        durationMs: duration,
+        error: error instanceof Error ? error.message : String(error),
         consecutiveFailures: failures,
       });
 
-      // Check if browser restart is needed
-      if (failures >= this.config.browserRestartOnFailures) {
-        this.onLog("warn", "browser_restart_triggered", { token, failures });
-        await this.restartBrowser();
-      }
+      await this.saveScreenshot(page, token, `error-${amountUsdt}`);
 
       return this.createInvalidQuote(
         token,
         amountUsdt,
-        scrapeError.type,
-        scrapeError.message
+        "unknown",
+        error instanceof Error ? error.message : String(error)
       );
     }
   }
 
   /**
-   * Set the input amount using robust selectors
+   * Get current output value from the second decimal input
    */
-  private async setInputAmount(page: Page, amount: number): Promise<boolean> {
-    // Strategy 1: Find input by inputmode="decimal"
-    // Strategy 2: Find input near "You pay" text
-    // Strategy 3: Find first numeric input in swap panel
-
-    const inputStrategies = [
-      // By inputmode attribute
-      'input[inputmode="decimal"]',
-      // By data-testid
-      'input[data-testid="token-amount-input"]',
-      '[data-testid="amount-input"] input',
-      // By aria-label patterns
-      'input[aria-label*="amount"]',
-      'input[aria-label*="pay"]',
-      // Generic fallback - first input in swap container
-      '[class*="swap"] input[type="text"]',
-      'input[type="text"]',
-    ];
-
-    for (const selector of inputStrategies) {
-      try {
-        const input = await page.$(selector);
-        if (input) {
-          // Clear existing value
-          await input.click({ clickCount: 3 });
-          await page.keyboard.press("Backspace");
-
-          // Type new amount
-          await input.type(amount.toString(), { delay: 50 });
-
-          this.onLog("debug", "input_set", { selector, amount });
-          return true;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    // Try XPath as fallback - find by nearby text
+  private async getOutputValue(page: Page): Promise<number | null> {
     try {
-      const xpathExpressions = [
-        '//text()[contains(., "You pay")]/ancestor::div[1]//input',
-        '//input[@inputmode="decimal"][1]',
-      ];
-
-      for (const xpath of xpathExpressions) {
-        const elements = await page.$x(xpath);
-        if (elements.length > 0) {
-          const input = elements[0] as any;
-          await input.click({ clickCount: 3 });
-          await page.keyboard.press("Backspace");
-          await input.type(amount.toString(), { delay: 50 });
-          this.onLog("debug", "input_set_xpath", { xpath, amount });
-          return true;
-        }
-      }
-    } catch {
-      // XPath failed
-    }
-
-    return false;
-  }
-
-  /**
-   * Wait for output to stabilize (same value observed 2-3 times)
-   */
-  private async waitForStableOutput(page: Page): Promise<number | null> {
-    const maxAttempts = 10;
-    const checkInterval = 200; // ms
-    const requiredConsecutive = 3;
-
-    let lastValue: number | null = null;
-    let consecutiveSame = 0;
-
-    for (let i = 0; i < maxAttempts; i++) {
-      await page.waitForTimeout(checkInterval);
-
-      const currentValue = await this.extractOutputAmount(page);
-
-      if (currentValue !== null && currentValue > 0) {
-        if (currentValue === lastValue) {
-          consecutiveSame++;
-          if (consecutiveSame >= requiredConsecutive) {
-            return currentValue;
-          }
-        } else {
-          consecutiveSame = 1;
-          lastValue = currentValue;
-        }
-      }
-    }
-
-    // Return last valid value even if not fully stable
-    return lastValue;
-  }
-
-  /**
-   * Extract output amount using robust selectors
-   */
-  private async extractOutputAmount(page: Page): Promise<number | null> {
-    const outputStrategies = [
-      // Multiple input fields - second one is usually output
-      async () => {
-        const inputs = await page.$$('input[inputmode="decimal"]');
+      const result = await page.evaluate(() => {
+        const inputs = document.querySelectorAll('input[inputmode="decimal"]');
         if (inputs.length >= 2) {
-          const value = await inputs[1].evaluate(
-            (el) => (el as HTMLInputElement).value
-          );
-          return this.parseNumericValue(value);
+          const output = inputs[1] as HTMLInputElement;
+          const value = output.value.replace(/,/g, "");
+          return value ? parseFloat(value) : null;
         }
         return null;
-      },
-      // By data-testid
-      async () => {
-        const el = await page.$(
-          '[data-testid="amount-output"] input, [data-testid="token-amount-output"]'
-        );
-        if (el) {
-          const value = await el.evaluate(
-            (el) => (el as HTMLInputElement).value || el.textContent
-          );
-          return this.parseNumericValue(value);
-        }
-        return null;
-      },
-      // By position - second swap panel
-      async () => {
-        return await page.evaluate(() => {
-          const inputs = document.querySelectorAll(
-            'input[inputmode="decimal"]'
-          );
-          if (inputs.length >= 2) {
-            const value = (inputs[1] as HTMLInputElement).value;
-            return value ? parseFloat(value.replace(/,/g, "")) : null;
-          }
-          return null;
-        });
-      },
-      // By nearby text "You receive"
-      async () => {
-        return await page.evaluate(() => {
-          const receiveText = Array.from(document.querySelectorAll("*")).find(
-            (el) => el.textContent?.includes("You receive")
-          );
-          if (receiveText) {
-            const container = receiveText.closest("div");
-            const input = container?.querySelector("input");
-            if (input) {
-              return parseFloat(input.value.replace(/,/g, "")) || null;
-            }
-          }
-          return null;
-        });
-      },
-    ];
+      });
+      return result;
+    } catch {
+      return null;
+    }
+  }
 
-    for (const strategy of outputStrategies) {
-      try {
-        const result = await strategy();
-        if (result !== null && result > 0 && isFinite(result)) {
-          return result;
+  /**
+   * Wait for output to change (non-blocking, max timeout)
+   */
+  private async waitForOutputChange(
+    page: Page,
+    originalValue: number | null,
+    maxWaitMs: number
+  ): Promise<number | null> {
+    const startTime = Date.now();
+    const checkInterval = 300;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const currentValue = await this.getOutputValue(page);
+      
+      // Check if value changed
+      if (currentValue !== null && currentValue > 0) {
+        if (originalValue === null || currentValue !== originalValue) {
+          this.onLog("debug", "output_container_found", { currentValue });
+          return currentValue;
         }
-      } catch {
-        continue;
       }
+
+      await page.waitForTimeout(checkInterval);
     }
 
-    return null;
-  }
-
-  /**
-   * Extract gas estimate from UI
-   */
-  private async extractGasEstimate(page: Page): Promise<number> {
-    try {
-      return await page.evaluate(() => {
-        // Look for text containing "$" and common gas-related terms
-        const gasPatterns = [
-          /Network cost[:\s]*\$?([\d.]+)/i,
-          /Gas[:\s]*\$?([\d.]+)/i,
-          /Fee[:\s]*\$?([\d.]+)/i,
-          /≈\s*\$?([\d.]+)/,
-        ];
-
-        const allText = document.body.innerText;
-
-        for (const pattern of gasPatterns) {
-          const match = allText.match(pattern);
-          if (match) {
-            const value = parseFloat(match[1]);
-            if (value > 0 && value < 100) {
-              // Sanity check
-              return value;
-            }
-          }
-        }
-
-        // Fallback: look for elements with gas-related classes or aria labels
-        const gasElements = Array.from(
-          document.querySelectorAll(
-            '[class*="gas"], [class*="fee"], [aria-label*="gas"]'
-          )
-        );
-        for (const el of gasElements) {
-          const text = el.textContent || "";
-          const match = text.match(/\$?([\d.]+)/);
-          if (match) {
-            const value = parseFloat(match[1]);
-            if (value > 0 && value < 100) {
-              return value;
-            }
-          }
-        }
-
-        return 0; // Unable to extract
-      });
-    } catch {
-      return 0;
-    }
-  }
-
-  /**
-   * Extract route information
-   */
-  private async extractRoute(page: Page): Promise<string> {
-    try {
-      return await page.evaluate(() => {
-        // Look for route/path display
-        const routeElements = Array.from(
-          document.querySelectorAll('[class*="route"], [class*="path"]')
-        );
-        for (const el of routeElements) {
-          const text = el.textContent?.trim();
-          if (text && text.includes("→")) {
-            return text;
-          }
-        }
-        return "USDT → TOKEN";
-      });
-    } catch {
-      return "USDT → TOKEN";
-    }
-  }
-
-  private parseNumericValue(value: string | null): number | null {
-    if (!value) return null;
-    const cleaned = value.replace(/,/g, "").trim();
-    if (cleaned === "" || cleaned === "—" || cleaned === "-") return null;
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? null : num;
+    // Timeout - return whatever we have
+    const finalValue = await this.getOutputValue(page);
+    return finalValue !== originalValue ? finalValue : null;
   }
 
   private createInvalidQuote(
@@ -527,19 +415,13 @@ export class UniswapScraper {
 
   async restartBrowser(): Promise<void> {
     this.onLog("warn", "browser_restarting");
-
     try {
       await this.close();
     } catch {
-      // Ignore close errors
+      // Ignore
     }
-
-    // Wait before restart
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
+    await new Promise(resolve => setTimeout(resolve, 2000));
     await this.initialize();
-
-    // Reset failure counters
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
   }
@@ -554,7 +436,7 @@ export class UniswapScraper {
 
   getErrorsLast5m(): number {
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-    return this.recentErrors.filter((e) => e.timestamp > fiveMinAgo).length;
+    return this.recentErrors.filter(e => e.timestamp > fiveMinAgo).length;
   }
 
   getLastSuccessTs(): number | null {
