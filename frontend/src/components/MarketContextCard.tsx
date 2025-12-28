@@ -17,8 +17,8 @@ const TRADING_LINKS = {
       url: "https://latoken.com/exchange/CSR_USDT",
     },
     dex: {
-      name: "Uniswap",
-      url: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
+      name: "Uniswap Pool",
+      url: "https://app.uniswap.org/explore/pools/ethereum/0x6c76bb9f364e72fcb57819d2920550768cf43e09e819daa40fabe9c7ab057f9e",
     },
   },
   CSR25: {
@@ -27,8 +27,8 @@ const TRADING_LINKS = {
       url: "https://www.lbank.com/trade/csr25_usdt",
     },
     dex: {
-      name: "Uniswap",
-      url: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982",
+      name: "Uniswap Pool",
+      url: "https://app.uniswap.org/explore/pools/ethereum/0x46afcc847653fa391320b2bde548c59cf384b029933667c541fb730c5641778e",
     },
   },
 };

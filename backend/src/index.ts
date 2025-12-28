@@ -1227,6 +1227,162 @@ app.get('/api/market', (req, res) => {
   res.json(dashboardData.market_state);
 });
 
+// ============================================================================
+// Uniswap v4 Recent Swaps - On-chain transaction history
+// ============================================================================
+
+// Uniswap v4 PoolManager on Ethereum mainnet
+const POOL_MANAGER_ADDRESS = "0x000000000004444c5dc75cb358380d2e3de08a90";
+
+// Pool IDs for CSR and CSR25 (from pool explorer URLs)
+const POOL_IDS: Record<string, string> = {
+  CSR: "0x6c76bb9f364e72fcb57819d2920550768cf43e09e819daa40fabe9c7ab057f9e",
+  CSR25: "0x46afcc847653fa391320b2bde548c59cf384b029933667c541fb730c5641778e",
+};
+
+// Swap event signature for Uniswap v4 PoolManager
+// event Swap(PoolId indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)
+const SWAP_EVENT_SIGNATURE = "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)";
+const SWAP_EVENT_TOPIC = ethers.id(SWAP_EVENT_SIGNATURE);
+
+// Cache for recent swaps (30s TTL)
+interface SwapCache {
+  data: any[];
+  timestamp: number;
+}
+const swapCache: Record<string, SwapCache> = {};
+const SWAP_CACHE_TTL_MS = 30000;
+
+// RPC provider (use public endpoint or configured one)
+const RPC_URL = process.env.RPC_URL || "https://eth.llamarpc.com";
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+// Get recent swaps for a token
+app.get("/api/swaps/:token", async (req, res) => {
+  const token = req.params.token.toUpperCase();
+  
+  if (token !== "CSR" && token !== "CSR25") {
+    return res.status(400).json({ error: "Invalid token. Use CSR or CSR25" });
+  }
+
+  const poolId = POOL_IDS[token];
+  const cacheKey = token;
+
+  // Check cache
+  const cached = swapCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < SWAP_CACHE_TTL_MS) {
+    return res.json({
+      token,
+      pool_id: poolId,
+      swaps: cached.data,
+      cached: true,
+      cache_age_sec: Math.round((Date.now() - cached.timestamp) / 1000),
+    });
+  }
+
+  try {
+    // Get current block
+    const currentBlock = await provider.getBlockNumber();
+    const fromBlock = currentBlock - 5000; // ~17 hours of blocks
+
+    // Query Swap events filtered by pool ID
+    const filter = {
+      address: POOL_MANAGER_ADDRESS,
+      topics: [
+        SWAP_EVENT_TOPIC,
+        poolId, // indexed pool ID
+      ],
+      fromBlock,
+      toBlock: currentBlock,
+    };
+
+    const logs = await provider.getLogs(filter);
+
+    // Get unique block numbers for timestamp lookup
+    const blockNumbers = [...new Set(logs.map((l) => l.blockNumber))];
+    const blockTimestamps: Record<number, number> = {};
+
+    // Fetch block timestamps (batch for efficiency)
+    await Promise.all(
+      blockNumbers.slice(0, 20).map(async (blockNum) => {
+        try {
+          const block = await provider.getBlock(blockNum);
+          if (block) {
+            blockTimestamps[blockNum] = block.timestamp;
+          }
+        } catch {
+          // Ignore individual block fetch errors
+        }
+      })
+    );
+
+    // Decode and format swap events
+    const swaps = logs
+      .slice(-20) // Last 20 swaps
+      .reverse() // Most recent first
+      .map((log) => {
+        try {
+          // Decode non-indexed parameters: amount0, amount1, sqrtPriceX96, liquidity, tick, fee
+          const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+          const decoded = abiCoder.decode(
+            ["int128", "int128", "uint160", "uint128", "int24", "uint24"],
+            log.data
+          );
+
+          const amount0 = decoded[0];
+          const amount1 = decoded[1];
+          const timestamp = blockTimestamps[log.blockNumber] || null;
+
+          // Determine swap direction (simplified: positive amount0 = sell token, negative = buy token)
+          const type = amount0 > 0n ? "SELL" : "BUY";
+
+          return {
+            tx_hash: log.transactionHash,
+            block_number: log.blockNumber,
+            timestamp: timestamp,
+            time_iso: timestamp ? new Date(timestamp * 1000).toISOString() : null,
+            type,
+            amount0: amount0.toString(),
+            amount1: amount1.toString(),
+            sender: log.topics[2] ? "0x" + log.topics[2].slice(26) : null,
+            etherscan_url: `https://etherscan.io/tx/${log.transactionHash}`,
+          };
+        } catch (e) {
+          return {
+            tx_hash: log.transactionHash,
+            block_number: log.blockNumber,
+            timestamp: blockTimestamps[log.blockNumber] || null,
+            type: "SWAP",
+            error: "decode_failed",
+            etherscan_url: `https://etherscan.io/tx/${log.transactionHash}`,
+          };
+        }
+      });
+
+    // Update cache
+    swapCache[cacheKey] = {
+      data: swaps,
+      timestamp: Date.now(),
+    };
+
+    res.json({
+      token,
+      pool_id: poolId,
+      swaps,
+      cached: false,
+      total_found: logs.length,
+      blocks_scanned: currentBlock - fromBlock,
+    });
+  } catch (error: any) {
+    console.error(`Error fetching swaps for ${token}:`, error.message);
+    res.status(500).json({
+      error: error.message,
+      token,
+      pool_id: poolId,
+    });
+  }
+});
+
 app.get('/api/decision', (req, res) => {
   res.json(dashboardData.decision);
 });

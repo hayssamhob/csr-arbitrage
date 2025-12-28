@@ -743,6 +743,17 @@ function App() {
           </div>
         </section>
 
+        {/* Recent On-Chain Swaps */}
+        <section className="mt-6">
+          <h3 className="text-lg font-semibold text-slate-300 mb-4">
+            🔗 Recent On-Chain Transactions
+          </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <RecentSwaps token="CSR" />
+            <RecentSwaps token="CSR25" />
+          </div>
+        </section>
+
         {/* Footer */}
         <footer className="text-center text-slate-600 text-xs mt-8 pb-4 border-t border-slate-800 pt-4">
           <div className="flex items-center justify-center gap-2 mb-1">
