@@ -137,7 +137,7 @@ export function AlignmentPanel({
   const suggestedSizeTokens = dexPrice > 0 ? suggestedSizeUsdt / dexPrice : 0;
 
   // Estimate costs
-  const gasUsdt = selectedQuote?.gasEstimateUsdt || 2; // Default $2 gas
+  const gasUsdt = referenceQuote?.gasEstimateUsdt || 2; // Default $2 gas
   const dexFeeBps = 30; // 0.3% Uniswap fee
   const slippageBps = Math.min(suggestedSizeUsdt / 100, 50);
   const totalCostBps =
