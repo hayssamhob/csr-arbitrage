@@ -727,6 +727,27 @@ interface PriceHistoryState {
   csr25_usdt: PricePoint[];
 }
 
+// Scraper quote type
+interface ScraperQuote {
+  market: string;
+  amountInUSDT: number;
+  amountOutToken: number;
+  price_usdt_per_token: number;
+  price_token_per_usdt: number;
+  gasEstimateUsdt: number | null;
+  valid: boolean;
+  reason?: string;
+  ts: number;
+}
+
+interface ScraperData {
+  quotes: ScraperQuote[];
+  meta: {
+    lastSuccessTs: number | null;
+    errorsLast5m: number;
+  };
+}
+
 function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -735,6 +756,9 @@ function App() {
     csr_usdt: [],
     csr25_usdt: [],
   });
+
+  // Scraper quotes state
+  const [scraperData, setScraperData] = useState<ScraperData | null>(null);
 
   // Wallet integration
   const wallet = useWallet();
@@ -780,6 +804,24 @@ function App() {
     }
     fetchHistory();
     const interval = setInterval(fetchHistory, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch scraper quotes periodically
+  useEffect(() => {
+    async function fetchScraperQuotes() {
+      try {
+        const resp = await fetch(`${API_URL}/api/scraper/quotes`);
+        if (resp.ok) {
+          const scraperJson = await resp.json();
+          setScraperData(scraperJson);
+        }
+      } catch (e) {
+        console.error("Failed to fetch scraper quotes:", e);
+      }
+    }
+    fetchScraperQuotes();
+    const interval = setInterval(fetchScraperQuotes, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1190,6 +1232,49 @@ function App() {
                 signer: wallet.signer,
               }}
               onExecuteTrade={handleExecuteTrade}
+            />
+          </div>
+        </section>
+
+        {/* DEX Price Alignment Section */}
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-4 text-emerald-400 flex items-center gap-2">
+            🎯 DEX Price Alignment
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* CSR Alignment */}
+            <AlignmentPanel
+              market="CSR_USDT"
+              cexPrice={data?.market_state?.csr_usdt?.latoken_ticker?.bid || 0}
+              cexSource="LATOKEN"
+              quotes={
+                scraperData?.quotes
+                  ?.filter((q) => q.market === "CSR_USDT")
+                  .map((q) => ({
+                    amountInUSDT: q.amountInUSDT,
+                    price_usdt_per_token: q.price_usdt_per_token,
+                    price_token_per_usdt: q.price_token_per_usdt,
+                    valid: q.valid,
+                    gasEstimateUsdt: q.gasEstimateUsdt,
+                  })) || []
+              }
+            />
+            {/* CSR25 Alignment */}
+            <AlignmentPanel
+              market="CSR25_USDT"
+              cexPrice={data?.market_state?.csr25_usdt?.lbank_ticker?.bid || 0}
+              cexSource="LBANK"
+              quotes={
+                scraperData?.quotes
+                  ?.filter((q) => q.market === "CSR25_USDT")
+                  .map((q) => ({
+                    amountInUSDT: q.amountInUSDT,
+                    price_usdt_per_token: q.price_usdt_per_token,
+                    price_token_per_usdt: q.price_token_per_usdt,
+                    valid: q.valid,
+                    gasEstimateUsdt: q.gasEstimateUsdt,
+                  })) || []
+              }
             />
           </div>
         </section>

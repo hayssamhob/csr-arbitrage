@@ -324,6 +324,29 @@ async function main(): Promise<void> {
     });
   });
 
+  // Proxy endpoint for scraper quotes
+  app.get("/scraper/quotes", async (_req: Request, res: Response) => {
+    try {
+      const scraperUrl = process.env.SCRAPER_URL || "http://localhost:3010";
+      const response = await fetch(`${scraperUrl}/quotes`);
+      if (response.ok) {
+        const data = await response.json();
+        res.json(data);
+      } else {
+        res
+          .status(502)
+          .json({ error: "Scraper unavailable", status: response.status });
+      }
+    } catch (err) {
+      res
+        .status(502)
+        .json({
+          error: "Failed to fetch scraper quotes",
+          details: String(err),
+        });
+    }
+  });
+
   app.listen(config.HTTP_PORT, () => {
     log("info", "server_started", {
       port: config.HTTP_PORT,
