@@ -149,6 +149,50 @@ async function main() {
     res.json(quote);
   });
 
+  // Debug endpoint - detailed status per token with last error info
+  app.get("/debug/:token", (req: Request, res: Response) => {
+    const token = req.params.token.toUpperCase() as TokenSymbol;
+    if (token !== "CSR" && token !== "CSR25") {
+      res.status(400).json({ error: "Invalid token. Use CSR or CSR25" });
+      return;
+    }
+
+    const quotes = latestQuotes.get(token) || [];
+    const validQuotes = quotes.filter((q) => q.valid);
+    const invalidQuotes = quotes.filter((q) => !q.valid);
+
+    // Get last error reasons
+    const lastErrors = invalidQuotes.slice(0, 5).map((q) => ({
+      size: q.amountInUSDT,
+      reason: q.reason || "unknown",
+      ts: q.ts,
+    }));
+
+    res.json({
+      token,
+      status: validQuotes.length > 0 ? "ok" : "error",
+      validQuotesCount: validQuotes.length,
+      invalidQuotesCount: invalidQuotes.length,
+      consecutiveFailures: scraper?.getConsecutiveFailures(token) || 0,
+      lastSuccessTs: scraper?.getLastSuccessTs(),
+      lastErrors,
+      screenshotDir: "/tmp/uniswap-debug",
+      screenshotPattern: `${token}-*.png`,
+      troubleshooting:
+        validQuotes.length === 0
+          ? [
+              "1. Check if Uniswap page loads correctly for this token",
+              "2. Review screenshots in /tmp/uniswap-debug/",
+              "3. Check PM2 logs: pm2 logs uniswap-scraper",
+              "4. Possible causes: token page blocked, no liquidity, UI changed",
+            ]
+          : [],
+    });
+  });
+
+  // Serve screenshot files for debugging
+  app.use("/screenshots", express.static("/tmp/uniswap-debug"));
+
   // Start HTTP server
   app.listen(config.httpPort, () => {
     log("info", "http_server_started", { port: config.httpPort });
