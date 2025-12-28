@@ -1,7 +1,7 @@
 {
   "name": "@csr-arb/uniswap-scraper",
   "version": "1.0.0",
-  "description": "Puppeteer-based Uniswap UI scraper for V4 prices (temporary fallback)",
+  "description": "Puppeteer-based Uniswap UI scraper for V4 prices (production-safe temporary solution)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -11,11 +11,12 @@
   "dependencies": {
     "express": "^4.18.2",
     "puppeteer": "^21.6.1",
-    "zod": "^3.22.4"
+    "ws": "^8.14.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.5",
+    "@types/ws": "^8.5.10",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }

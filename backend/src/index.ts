@@ -22,6 +22,8 @@ const UNISWAP_QUOTE_CSR_URL =
   process.env.UNISWAP_QUOTE_CSR_URL || "http://localhost:3005";
 const STRATEGY_ENGINE_URL =
   process.env.STRATEGY_ENGINE_URL || "http://localhost:3003";
+const UNISWAP_SCRAPER_URL =
+  process.env.UNISWAP_SCRAPER_URL || "http://localhost:3010";
 
 // Types
 interface ServiceHealth {
@@ -36,10 +38,25 @@ interface ServiceHealth {
   subscription_errors?: Record<string, string>;
 }
 
+interface ScraperQuote {
+  market: string;
+  inputToken: string;
+  outputToken: string;
+  amountInUSDT: number;
+  amountOutToken: string;
+  effectivePriceUsdtPerToken: number;
+  gasEstimateUsdt: number;
+  route: string;
+  ts: number;
+  valid: boolean;
+  reason?: string;
+}
+
 interface MarketData {
   lbank_ticker?: any;
   latoken_ticker?: any;
   uniswap_quote?: any;
+  scraper_quotes?: ScraperQuote[];
   decision?: any;
 }
 
@@ -142,7 +159,7 @@ const priceHistory: {
 
 const MAX_HISTORY_POINTS = 100;
 
-function addPricePoint(market: 'csr_usdt' | 'csr25_usdt', point: PricePoint) {
+function addPricePoint(market: "csr_usdt" | "csr25_usdt", point: PricePoint) {
   priceHistory[market].push(point);
   if (priceHistory[market].length > MAX_HISTORY_POINTS) {
     priceHistory[market].shift();
@@ -290,16 +307,53 @@ async function fetchServiceData() {
       };
     }
 
+    // Fetch scraper quotes (UI-scraped V4 prices)
+    let scraperQuotes: { CSR: ScraperQuote[]; CSR25: ScraperQuote[] } = {
+      CSR: [],
+      CSR25: [],
+    };
+    try {
+      const resp = await httpClient.get(`${UNISWAP_SCRAPER_URL}/quotes`);
+      if (resp.data?.quotes) {
+        for (const quote of resp.data.quotes) {
+          if (quote.outputToken === "CSR") {
+            scraperQuotes.CSR.push(quote);
+          } else if (quote.outputToken === "CSR25") {
+            scraperQuotes.CSR25.push(quote);
+          }
+        }
+      }
+    } catch {
+      // Scraper not available - continue without scraper quotes
+    }
+
     // Fetch market state from strategy engine (includes both markets)
     try {
       const resp = await httpClient.get(`${STRATEGY_ENGINE_URL}/state`);
       marketState = resp.data;
+      // Add scraper quotes to market state
+      if (marketState.csr_usdt) {
+        marketState.csr_usdt.scraper_quotes = scraperQuotes.CSR;
+      }
+      if (marketState.csr25_usdt) {
+        marketState.csr25_usdt.scraper_quotes = scraperQuotes.CSR25;
+      }
     } catch {
       // Use default structure if strategy engine is down
       marketState = {
         ts: now,
-        csr_usdt: { lbank_ticker: null, uniswap_quote: null, decision: null },
-        csr25_usdt: { lbank_ticker: null, uniswap_quote: null, decision: null },
+        csr_usdt: {
+          lbank_ticker: null,
+          uniswap_quote: null,
+          decision: null,
+          scraper_quotes: scraperQuotes.CSR,
+        },
+        csr25_usdt: {
+          lbank_ticker: null,
+          uniswap_quote: null,
+          decision: null,
+          scraper_quotes: scraperQuotes.CSR25,
+        },
         is_stale: true,
       };
     }

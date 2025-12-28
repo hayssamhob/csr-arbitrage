@@ -88,6 +88,29 @@ services:
       - strategy
     restart: unless-stopped
 
+  # Uniswap UI Scraper (Puppeteer-based V4 price ingestion)
+  uniswap-scraper:
+    build: ./services/uniswap-scraper
+    ports:
+      - "3010:3010"
+      - "3011:3011"
+    environment:
+      - SCRAPE_INTERVAL_MS=10000
+      - QUOTE_SIZES_USDT=10,25,50,100,250,500,1000
+      - MAX_STALENESS_SECONDS=20
+      - UNISWAP_TIMEOUT_MS=8000
+      - HEADLESS=true
+      - BLOCK_RESOURCES=true
+      - CONSENT_AUTO_ACCEPT=true
+      - SCRAPER_HTTP_PORT=3010
+      - SCRAPER_WS_PORT=3011
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    restart: unless-stopped
+    shm_size: '256mb'
+
   # Frontend
   frontend:
     build: ./frontend

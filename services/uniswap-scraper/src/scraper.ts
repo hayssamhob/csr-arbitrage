@@ -1,206 +1,565 @@
 import puppeteer, { Browser, Page } from "puppeteer";
+import { ScraperConfig } from "./config";
+import { LogFn, QuoteData, ScrapeError, TokenSymbol } from "./types";
 
 /**
- * Uniswap UI Scraper
- * 
- * Scrapes real prices from Uniswap UI for V4 pools
- * TEMPORARY FALLBACK - clearly labeled source="ui_scrape"
+ * Robust Uniswap UI Scraper
+ *
+ * Uses text anchors and semantic selectors instead of brittle CSS classes.
+ * Implements stable output detection with debouncing.
+ * Self-healing: restarts browser on consecutive failures.
  */
-
-type LogFn = (level: string, event: string, data?: Record<string, unknown>) => void;
-
-// Uniswap swap URLs for each token
-const SWAP_URLS = {
-  CSR: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
-  CSR25: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982",
-};
-
-export interface ScrapeResult {
-  token: string;
-  price: number;
-  gasUsd: number;
-  priceImpact: number;
-  maxSlippage: string;
-  route: string;
-}
-
 export class UniswapScraper {
   private browser: Browser | null = null;
-  private pages: Map<string, Page> = new Map();
+  private pages: Map<TokenSymbol, Page> = new Map();
+  private config: ScraperConfig;
   private onLog: LogFn;
+  private consecutiveFailures: Map<TokenSymbol, number> = new Map();
+  private recentErrors: ScrapeError[] = [];
+  private lastSuccessTs: number | null = null;
 
-  constructor(onLog: LogFn) {
+  constructor(config: ScraperConfig, onLog: LogFn) {
+    this.config = config;
     this.onLog = onLog;
+    this.consecutiveFailures.set("CSR", 0);
+    this.consecutiveFailures.set("CSR25", 0);
   }
 
   async initialize(): Promise<void> {
-    this.onLog("info", "launching_browser");
-    
-    this.browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--disable-gpu",
-        "--window-size=1920x1080",
-      ],
+    this.onLog("info", "browser_launching", {
+      headless: this.config.headless,
+      args: this.config.chromeArgs,
     });
 
-    // Pre-load pages for each token
-    for (const [token, url] of Object.entries(SWAP_URLS)) {
-      const page = await this.browser.newPage();
-      await page.setViewport({ width: 1920, height: 1080 });
-      await page.setUserAgent(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      );
-      
-      try {
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
-        this.pages.set(token, page);
-        this.onLog("info", "page_loaded", { token, url });
-      } catch (error) {
-        this.onLog("error", "page_load_failed", {
-          token,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+    this.browser = await puppeteer.launch({
+      headless: this.config.headless,
+      args: this.config.chromeArgs,
+      defaultViewport: { width: 1920, height: 1080 },
+    });
+
+    // Initialize pages for each token
+    for (const token of ["CSR", "CSR25"] as TokenSymbol[]) {
+      await this.initializePage(token);
     }
+
+    this.onLog("info", "browser_initialized", {
+      pages: Array.from(this.pages.keys()),
+    });
   }
 
-  async scrapePrice(token: "CSR" | "CSR25"): Promise<ScrapeResult> {
-    const page = this.pages.get(token);
-    
-    if (!page) {
-      throw new Error(`No page loaded for ${token}`);
+  private async initializePage(token: TokenSymbol): Promise<void> {
+    if (!this.browser) throw new Error("Browser not initialized");
+
+    const page = await this.browser.newPage();
+
+    // Set user agent
+    await page.setUserAgent(this.config.userAgent);
+
+    // Block unnecessary resources to speed up loading
+    if (this.config.blockResources) {
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const resourceType = req.resourceType();
+        if (["image", "font", "media", "stylesheet"].includes(resourceType)) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
     }
 
+    // Navigate to Uniswap swap page
+    const url = this.config.tokens[token];
+    this.onLog("info", "page_navigating", { token, url });
+
     try {
-      // Enter amount "1" in the input field to get price for 1 USDT
-      const inputSelector = 'input[data-testid="amount-input"]';
-      await page.waitForSelector(inputSelector, { timeout: 5000 });
-      
-      // Clear and type "1"
-      await page.click(inputSelector, { clickCount: 3 });
-      await page.type(inputSelector, "1");
-
-      // Wait for quote to load (look for output amount)
-      await page.waitForTimeout(2000);
-
-      // Extract the output amount (how many tokens for 1 USDT)
-      const outputAmount = await page.evaluate(() => {
-        // Try to find the output amount element
-        const outputElements = document.querySelectorAll('[data-testid="amount-output"]');
-        if (outputElements.length > 0) {
-          const text = outputElements[0].textContent;
-          if (text) {
-            return parseFloat(text.replace(/,/g, ""));
-          }
-        }
-        
-        // Fallback: look for any input with a numeric value
-        const inputs = document.querySelectorAll('input');
-        for (const input of inputs) {
-          const value = input.value;
-          if (value && !isNaN(parseFloat(value)) && parseFloat(value) > 0) {
-            // Skip the input we just typed
-            if (value !== "1") {
-              return parseFloat(value.replace(/,/g, ""));
-            }
-          }
-        }
-        
-        return null;
+      await page.goto(url, {
+        waitUntil: "networkidle2",
+        timeout: this.config.uniswapTimeoutMs,
       });
 
-      if (!outputAmount || outputAmount <= 0) {
-        throw new Error("Could not extract output amount");
+      // Handle consent modals
+      if (this.config.consentAutoAccept) {
+        await this.handleConsentModals(page);
       }
 
-      // Price = 1 USDT / tokens received = USDT per token
-      const price = 1 / outputAmount;
-
-      // Try to extract gas cost
-      const gasUsd = await page.evaluate(() => {
-        const gasElements = document.querySelectorAll('[class*="gas"]');
-        for (const el of gasElements) {
-          const text = el.textContent;
-          if (text && text.includes("$")) {
-            const match = text.match(/\$([0-9.]+)/);
-            if (match) {
-              return parseFloat(match[1]);
-            }
-          }
-        }
-        return 0.02; // Default
-      });
-
-      // Try to extract price impact
-      const priceImpact = await page.evaluate(() => {
-        const impactElements = document.querySelectorAll('[class*="impact"]');
-        for (const el of impactElements) {
-          const text = el.textContent;
-          if (text && text.includes("%")) {
-            const match = text.match(/([0-9.-]+)%/);
-            if (match) {
-              return parseFloat(match[1]);
-            }
-          }
-        }
-        return -0.34; // Default
-      });
-
-      // Try to extract max slippage
-      const maxSlippage = await page.evaluate(() => {
-        const slippageElements = document.querySelectorAll('[class*="slippage"]');
-        for (const el of slippageElements) {
-          const text = el.textContent;
-          if (text && text.includes("%")) {
-            return text;
-          }
-        }
-        return "Auto / 0.50%";
-      });
-
-      this.onLog("info", "price_extracted", {
-        token,
-        outputAmount,
-        price,
-        gasUsd,
-        priceImpact,
-      });
-
-      return {
-        token,
-        price,
-        gasUsd,
-        priceImpact,
-        maxSlippage,
-        route: "Uniswap UI",
-      };
+      this.pages.set(token, page);
+      this.onLog("info", "page_loaded", { token });
     } catch (error) {
-      this.onLog("error", "scrape_error", {
+      this.onLog("error", "page_load_failed", {
         token,
         error: error instanceof Error ? error.message : String(error),
       });
-
-      // Try to reload the page and retry
-      try {
-        const url = SWAP_URLS[token];
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
-      } catch {
-        // Ignore reload errors
-      }
-
       throw error;
     }
+  }
+
+  private async handleConsentModals(page: Page): Promise<void> {
+    try {
+      // Wait briefly for any modal to appear
+      await page.waitForTimeout(1000);
+
+      // Try multiple selectors for consent/cookie buttons
+      const consentSelectors = [
+        'button:has-text("Accept")',
+        'button:has-text("I understand")',
+        'button:has-text("Got it")',
+        '[data-testid="web3-status-connected"]',
+        'button[aria-label="Close"]',
+      ];
+
+      for (const selector of consentSelectors) {
+        try {
+          const element = await page.$(selector);
+          if (element) {
+            await element.click();
+            this.onLog("debug", "consent_clicked", { selector });
+            await page.waitForTimeout(500);
+          }
+        } catch {
+          // Ignore - selector might not exist
+        }
+      }
+    } catch {
+      // Consent handling is best-effort
+    }
+  }
+
+  /**
+   * Scrape quote for a specific token and amount
+   * Uses robust selectors based on text anchors
+   */
+  async scrapeQuote(
+    token: TokenSymbol,
+    amountUsdt: number
+  ): Promise<QuoteData> {
+    const page = this.pages.get(token);
+    if (!page) {
+      return this.createInvalidQuote(
+        token,
+        amountUsdt,
+        "selector_missing",
+        "Page not initialized"
+      );
+    }
+
+    const startTime = Date.now();
+
+    try {
+      // Find and clear the input field using multiple strategies
+      const inputValue = await this.setInputAmount(page, amountUsdt);
+      if (!inputValue) {
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "selector_missing",
+          "Could not find input field"
+        );
+      }
+
+      // Wait for quote to stabilize (same value 2-3 times over 500ms)
+      const outputAmount = await this.waitForStableOutput(page);
+      if (outputAmount === null) {
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "timeout",
+          "Output did not stabilize"
+        );
+      }
+
+      if (outputAmount <= 0) {
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "ui_changed",
+          "Invalid output amount"
+        );
+      }
+
+      // Extract gas estimate
+      const gasEstimate = await this.extractGasEstimate(page);
+
+      // Extract route info
+      const route = await this.extractRoute(page);
+
+      // Calculate effective price
+      const effectivePrice = amountUsdt / outputAmount;
+
+      // Success - reset failure counter
+      this.consecutiveFailures.set(token, 0);
+      this.lastSuccessTs = Date.now();
+
+      this.onLog("info", "quote_scraped", {
+        token,
+        amountUsdt,
+        outputAmount,
+        effectivePrice,
+        gasEstimate,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        market: `${token}_USDT`,
+        inputToken: "USDT",
+        outputToken: token,
+        amountInUSDT: amountUsdt,
+        amountOutToken: outputAmount.toFixed(8),
+        effectivePriceUsdtPerToken: effectivePrice,
+        gasEstimateUsdt: gasEstimate,
+        route,
+        ts: Math.floor(Date.now() / 1000),
+        valid: true,
+      };
+    } catch (error) {
+      const failures = (this.consecutiveFailures.get(token) || 0) + 1;
+      this.consecutiveFailures.set(token, failures);
+
+      const scrapeError: ScrapeError = {
+        type: "unknown",
+        message: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+      this.recentErrors.push(scrapeError);
+      // Keep only last 5 minutes of errors
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+      this.recentErrors = this.recentErrors.filter(
+        (e) => e.timestamp > fiveMinAgo
+      );
+
+      this.onLog("error", "scrape_failed", {
+        token,
+        amountUsdt,
+        error: scrapeError.message,
+        consecutiveFailures: failures,
+      });
+
+      // Check if browser restart is needed
+      if (failures >= this.config.browserRestartOnFailures) {
+        this.onLog("warn", "browser_restart_triggered", { token, failures });
+        await this.restartBrowser();
+      }
+
+      return this.createInvalidQuote(
+        token,
+        amountUsdt,
+        scrapeError.type,
+        scrapeError.message
+      );
+    }
+  }
+
+  /**
+   * Set the input amount using robust selectors
+   */
+  private async setInputAmount(page: Page, amount: number): Promise<boolean> {
+    // Strategy 1: Find input by inputmode="decimal"
+    // Strategy 2: Find input near "You pay" text
+    // Strategy 3: Find first numeric input in swap panel
+
+    const inputStrategies = [
+      // By inputmode attribute
+      'input[inputmode="decimal"]',
+      // By data-testid
+      'input[data-testid="token-amount-input"]',
+      '[data-testid="amount-input"] input',
+      // By aria-label patterns
+      'input[aria-label*="amount"]',
+      'input[aria-label*="pay"]',
+      // Generic fallback - first input in swap container
+      '[class*="swap"] input[type="text"]',
+      'input[type="text"]',
+    ];
+
+    for (const selector of inputStrategies) {
+      try {
+        const input = await page.$(selector);
+        if (input) {
+          // Clear existing value
+          await input.click({ clickCount: 3 });
+          await page.keyboard.press("Backspace");
+
+          // Type new amount
+          await input.type(amount.toString(), { delay: 50 });
+
+          this.onLog("debug", "input_set", { selector, amount });
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    // Try XPath as fallback - find by nearby text
+    try {
+      const xpathExpressions = [
+        '//text()[contains(., "You pay")]/ancestor::div[1]//input',
+        '//input[@inputmode="decimal"][1]',
+      ];
+
+      for (const xpath of xpathExpressions) {
+        const elements = await page.$x(xpath);
+        if (elements.length > 0) {
+          const input = elements[0];
+          await input.click({ clickCount: 3 });
+          await page.keyboard.press("Backspace");
+          await input.type(amount.toString(), { delay: 50 });
+          this.onLog("debug", "input_set_xpath", { xpath, amount });
+          return true;
+        }
+      }
+    } catch {
+      // XPath failed
+    }
+
+    return false;
+  }
+
+  /**
+   * Wait for output to stabilize (same value observed 2-3 times)
+   */
+  private async waitForStableOutput(page: Page): Promise<number | null> {
+    const maxAttempts = 10;
+    const checkInterval = 200; // ms
+    const requiredConsecutive = 3;
+
+    let lastValue: number | null = null;
+    let consecutiveSame = 0;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await page.waitForTimeout(checkInterval);
+
+      const currentValue = await this.extractOutputAmount(page);
+
+      if (currentValue !== null && currentValue > 0) {
+        if (currentValue === lastValue) {
+          consecutiveSame++;
+          if (consecutiveSame >= requiredConsecutive) {
+            return currentValue;
+          }
+        } else {
+          consecutiveSame = 1;
+          lastValue = currentValue;
+        }
+      }
+    }
+
+    // Return last valid value even if not fully stable
+    return lastValue;
+  }
+
+  /**
+   * Extract output amount using robust selectors
+   */
+  private async extractOutputAmount(page: Page): Promise<number | null> {
+    const outputStrategies = [
+      // Multiple input fields - second one is usually output
+      async () => {
+        const inputs = await page.$$('input[inputmode="decimal"]');
+        if (inputs.length >= 2) {
+          const value = await inputs[1].evaluate(
+            (el) => (el as HTMLInputElement).value
+          );
+          return this.parseNumericValue(value);
+        }
+        return null;
+      },
+      // By data-testid
+      async () => {
+        const el = await page.$(
+          '[data-testid="amount-output"] input, [data-testid="token-amount-output"]'
+        );
+        if (el) {
+          const value = await el.evaluate(
+            (el) => (el as HTMLInputElement).value || el.textContent
+          );
+          return this.parseNumericValue(value);
+        }
+        return null;
+      },
+      // By position - second swap panel
+      async () => {
+        return await page.evaluate(() => {
+          const inputs = document.querySelectorAll(
+            'input[inputmode="decimal"]'
+          );
+          if (inputs.length >= 2) {
+            const value = (inputs[1] as HTMLInputElement).value;
+            return value ? parseFloat(value.replace(/,/g, "")) : null;
+          }
+          return null;
+        });
+      },
+      // By nearby text "You receive"
+      async () => {
+        return await page.evaluate(() => {
+          const receiveText = Array.from(document.querySelectorAll("*")).find(
+            (el) => el.textContent?.includes("You receive")
+          );
+          if (receiveText) {
+            const container = receiveText.closest("div");
+            const input = container?.querySelector("input");
+            if (input) {
+              return parseFloat(input.value.replace(/,/g, "")) || null;
+            }
+          }
+          return null;
+        });
+      },
+    ];
+
+    for (const strategy of outputStrategies) {
+      try {
+        const result = await strategy();
+        if (result !== null && result > 0 && isFinite(result)) {
+          return result;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract gas estimate from UI
+   */
+  private async extractGasEstimate(page: Page): Promise<number> {
+    try {
+      return await page.evaluate(() => {
+        // Look for text containing "$" and common gas-related terms
+        const gasPatterns = [
+          /Network cost[:\s]*\$?([\d.]+)/i,
+          /Gas[:\s]*\$?([\d.]+)/i,
+          /Fee[:\s]*\$?([\d.]+)/i,
+          /≈\s*\$?([\d.]+)/,
+        ];
+
+        const allText = document.body.innerText;
+
+        for (const pattern of gasPatterns) {
+          const match = allText.match(pattern);
+          if (match) {
+            const value = parseFloat(match[1]);
+            if (value > 0 && value < 100) {
+              // Sanity check
+              return value;
+            }
+          }
+        }
+
+        // Fallback: look for elements with gas-related classes or aria labels
+        const gasElements = document.querySelectorAll(
+          '[class*="gas"], [class*="fee"], [aria-label*="gas"]'
+        );
+        for (const el of gasElements) {
+          const text = el.textContent || "";
+          const match = text.match(/\$?([\d.]+)/);
+          if (match) {
+            const value = parseFloat(match[1]);
+            if (value > 0 && value < 100) {
+              return value;
+            }
+          }
+        }
+
+        return 0; // Unable to extract
+      });
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Extract route information
+   */
+  private async extractRoute(page: Page): Promise<string> {
+    try {
+      return await page.evaluate(() => {
+        // Look for route/path display
+        const routeElements = document.querySelectorAll(
+          '[class*="route"], [class*="path"]'
+        );
+        for (const el of routeElements) {
+          const text = el.textContent?.trim();
+          if (text && text.includes("→")) {
+            return text;
+          }
+        }
+        return "USDT → TOKEN";
+      });
+    } catch {
+      return "USDT → TOKEN";
+    }
+  }
+
+  private parseNumericValue(value: string | null): number | null {
+    if (!value) return null;
+    const cleaned = value.replace(/,/g, "").trim();
+    if (cleaned === "" || cleaned === "—" || cleaned === "-") return null;
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? null : num;
+  }
+
+  private createInvalidQuote(
+    token: TokenSymbol,
+    amountUsdt: number,
+    reason: ScrapeError["type"],
+    message: string
+  ): QuoteData {
+    return {
+      market: `${token}_USDT`,
+      inputToken: "USDT",
+      outputToken: token,
+      amountInUSDT: amountUsdt,
+      amountOutToken: "0",
+      effectivePriceUsdtPerToken: 0,
+      gasEstimateUsdt: 0,
+      route: "none",
+      ts: Math.floor(Date.now() / 1000),
+      valid: false,
+      reason: `${reason}: ${message}`,
+    };
+  }
+
+  async restartBrowser(): Promise<void> {
+    this.onLog("warn", "browser_restarting");
+
+    try {
+      await this.close();
+    } catch {
+      // Ignore close errors
+    }
+
+    // Wait before restart
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    await this.initialize();
+
+    // Reset failure counters
+    this.consecutiveFailures.set("CSR", 0);
+    this.consecutiveFailures.set("CSR25", 0);
   }
 
   async close(): Promise<void> {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
+      this.pages.clear();
     }
+  }
+
+  getErrorsLast5m(): number {
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    return this.recentErrors.filter((e) => e.timestamp > fiveMinAgo).length;
+  }
+
+  getLastSuccessTs(): number | null {
+    return this.lastSuccessTs;
+  }
+
+  getConsecutiveFailures(token: TokenSymbol): number {
+    return this.consecutiveFailures.get(token) || 0;
   }
 }
