@@ -151,6 +151,33 @@ export function useWallet() {
     });
   }, []);
 
+  // Switch wallet - triggers wallet's account selector
+  const switchWallet = useCallback(async () => {
+    if (!isWalletAvailable) {
+      setState((prev) => ({
+        ...prev,
+        error: "No wallet detected.",
+      }));
+      return;
+    }
+
+    try {
+      // Request wallet to show account selector
+      await window.ethereum!.request({
+        method: "wallet_requestPermissions",
+        params: [{ eth_accounts: {} }],
+      });
+
+      // After user selects account, reconnect
+      await connect();
+    } catch {
+      // User rejected or wallet doesn't support wallet_requestPermissions
+      // Fall back to disconnect + connect
+      disconnect();
+      setTimeout(() => connect(), 100);
+    }
+  }, [isWalletAvailable, connect, disconnect]);
+
   // Listen for account changes
   useEffect(() => {
     if (!isWalletAvailable) return;
@@ -186,6 +213,7 @@ export function useWallet() {
     isWalletAvailable,
     connect,
     disconnect,
+    switchWallet,
     isConnected: !!state.address,
   };
 }

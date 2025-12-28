@@ -27,10 +27,10 @@ export class UniswapScraper {
   private consecutiveFailures: Map<TokenSymbol, number> = new Map();
   private recentErrors: ScrapeError[] = [];
   private lastSuccessTs: number | null = null;
-  
+
   // Last known good quotes for sanity checking
   private lastGoodQuotes: Map<string, QuoteData> = new Map();
-  
+
   // Track if pages are warmed up (first scrape done)
   private warmedUp: Map<TokenSymbol, boolean> = new Map();
 
@@ -47,7 +47,11 @@ export class UniswapScraper {
     }
   }
 
-  private async saveScreenshot(page: Page, token: TokenSymbol, stage: string): Promise<string> {
+  private async saveScreenshot(
+    page: Page,
+    token: TokenSymbol,
+    stage: string
+  ): Promise<string> {
     const filename = `${token}-${stage}-${Date.now()}.png`;
     const filepath = path.join(DEBUG_DIR, filename);
     try {
@@ -59,7 +63,15 @@ export class UniswapScraper {
   }
 
   private async dismissBlockers(page: Page, token: TokenSymbol): Promise<void> {
-    const blockerTexts = ["Accept", "I agree", "Continue", "Close", "Got it", "Dismiss", "OK"];
+    const blockerTexts = [
+      "Accept",
+      "I agree",
+      "Continue",
+      "Close",
+      "Got it",
+      "Dismiss",
+      "OK",
+    ];
     let dismissed = 0;
 
     for (let i = 0; i < 3; i++) {
@@ -68,7 +80,9 @@ export class UniswapScraper {
         try {
           const buttons = await page.$$(`button`);
           for (const button of buttons) {
-            const buttonText = await button.evaluate((el: Element) => el.textContent || "");
+            const buttonText = await button.evaluate(
+              (el: Element) => el.textContent || ""
+            );
             if (buttonText.toLowerCase().includes(text.toLowerCase())) {
               await button.click();
               dismissed++;
@@ -76,19 +90,26 @@ export class UniswapScraper {
               await page.waitForTimeout(200);
             }
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
-      
+
       try {
         await page.evaluate(() => {
           document.body.style.overflow = "auto";
-          const closeSelectors = ['[aria-label="Close"]', '[data-testid="close-icon"]'];
+          const closeSelectors = [
+            '[aria-label="Close"]',
+            '[data-testid="close-icon"]',
+          ];
           for (const sel of closeSelectors) {
             const el = document.querySelector(sel) as HTMLElement;
             if (el) el.click();
           }
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       if (!foundBlocker) break;
     }
@@ -117,10 +138,10 @@ export class UniswapScraper {
     this.onLog("info", "browser_initialized", {
       pages: Array.from(this.pages.keys()),
     });
-    
+
     // Warm-up delay after page load
     this.onLog("info", "warmup_delay", { delayMs: 2000 });
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000));
   }
 
   private async initializePage(token: TokenSymbol): Promise<void> {
@@ -171,65 +192,79 @@ export class UniswapScraper {
    */
   async scrapeToken(token: TokenSymbol, sizes: number[]): Promise<QuoteData[]> {
     const quotes: QuoteData[] = [];
-    
+
     for (const size of sizes) {
       const quote = await this.scrapeQuote(token, size);
-      
+
       // Apply sanity checks
       const validatedQuote = this.validateQuote(quote, token, size);
       quotes.push(validatedQuote);
-      
+
       // Small delay between sizes to let UI settle
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 200));
     }
-    
+
     return quotes;
   }
 
   /**
-   * Scrape both tokens in parallel
+   * Scrape both tokens sequentially (parallel causes input timeouts)
    */
-  async scrapeAll(sizes: number[]): Promise<{ csr: QuoteData[], csr25: QuoteData[] }> {
-    const [csrQuotes, csr25Quotes] = await Promise.all([
-      this.scrapeToken("CSR", sizes),
-      this.scrapeToken("CSR25", sizes),
-    ]);
-    
+  async scrapeAll(
+    sizes: number[]
+  ): Promise<{ csr: QuoteData[]; csr25: QuoteData[] }> {
+    // Sequential scraping is more stable than parallel
+    const csrQuotes = await this.scrapeToken("CSR", sizes);
+    const csr25Quotes = await this.scrapeToken("CSR25", sizes);
+
     return { csr: csrQuotes, csr25: csr25Quotes };
   }
 
   /**
    * Validate quote against sanity rules
    */
-  private validateQuote(quote: QuoteData, token: TokenSymbol, size: number): QuoteData {
+  private validateQuote(
+    quote: QuoteData,
+    token: TokenSymbol,
+    size: number
+  ): QuoteData {
     const key = `${token}_${size}`;
     const lastGood = this.lastGoodQuotes.get(key);
-    
+
     // Rule 1: Reject zero/NaN output
-    if (!quote.valid || quote.amountOutToken <= 0 || isNaN(quote.amountOutToken)) {
+    if (
+      !quote.valid ||
+      quote.amountOutToken <= 0 ||
+      isNaN(quote.amountOutToken)
+    ) {
       return quote; // Already invalid
     }
-    
+
     // Rule 2: Check price change vs last good (if exists)
     if (lastGood && lastGood.price_usdt_per_token > 0) {
-      const priceChange = Math.abs(quote.price_usdt_per_token - lastGood.price_usdt_per_token) / lastGood.price_usdt_per_token;
-      
+      const priceChange =
+        Math.abs(quote.price_usdt_per_token - lastGood.price_usdt_per_token) /
+        lastGood.price_usdt_per_token;
+
       if (priceChange > PRICE_CHANGE_THRESHOLD) {
         this.onLog("warn", "quote_rejected_price_change", {
-          token, size,
+          token,
+          size,
           newPrice: quote.price_usdt_per_token,
           lastPrice: lastGood.price_usdt_per_token,
           changePercent: (priceChange * 100).toFixed(1),
         });
-        
+
         // Return last good quote instead
         return {
           ...lastGood,
-          reason: `price_change_rejected: ${(priceChange * 100).toFixed(1)}% change`,
+          reason: `price_change_rejected: ${(priceChange * 100).toFixed(
+            1
+          )}% change`,
         };
       }
     }
-    
+
     // Quote passed sanity checks - update last known good
     this.lastGoodQuotes.set(key, quote);
     return quote;
@@ -238,10 +273,19 @@ export class UniswapScraper {
   /**
    * Scrape single quote - fast fail with timeout
    */
-  async scrapeQuote(token: TokenSymbol, amountUsdt: number): Promise<QuoteData> {
+  async scrapeQuote(
+    token: TokenSymbol,
+    amountUsdt: number
+  ): Promise<QuoteData> {
     const page = this.pages.get(token);
     if (!page) {
-      return this.createInvalidQuote(token, amountUsdt, "selector_missing", "Page not initialized", 0);
+      return this.createInvalidQuote(
+        token,
+        amountUsdt,
+        "selector_missing",
+        "Page not initialized",
+        0
+      );
     }
 
     const startTime = Date.now();
@@ -253,7 +297,13 @@ export class UniswapScraper {
       const inputs = await page.$$(inputSelector);
 
       if (inputs.length < 2) {
-        return this.createInvalidQuote(token, amountUsdt, "selector_missing", "Inputs not found", Date.now() - startTime);
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "selector_missing",
+          "Inputs not found",
+          Date.now() - startTime
+        );
       }
 
       const inputField = inputs[0];
@@ -264,20 +314,33 @@ export class UniswapScraper {
       // Set input with timeout
       const inputResult = await Promise.race([
         this.setInputValue(page, inputField, amountUsdt),
-        new Promise<string>((_, reject) => 
+        new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error("Input timeout")), perQuoteTimeout)
         ),
       ]);
 
       if (inputResult !== "success") {
-        return this.createInvalidQuote(token, amountUsdt, "timeout", inputResult, Date.now() - startTime);
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "timeout",
+          inputResult,
+          Date.now() - startTime
+        );
       }
 
       // Wait for output change (max 3s)
-      const { value: outputAfter, raw: outputRaw } = await this.waitForOutputChange(page, outputBefore, 3000);
+      const { value: outputAfter, raw: outputRaw } =
+        await this.waitForOutputChange(page, outputBefore, 3000);
 
       if (outputAfter === null || outputAfter <= 0) {
-        return this.createInvalidQuote(token, amountUsdt, "timeout", "Output unchanged", Date.now() - startTime);
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "timeout",
+          "Output unchanged",
+          Date.now() - startTime
+        );
       }
 
       // Extract gas estimate
@@ -293,7 +356,9 @@ export class UniswapScraper {
       this.warmedUp.set(token, true);
 
       this.onLog("info", "quote_scraped", {
-        token, amountUsdt, outputAfter,
+        token,
+        amountUsdt,
+        outputAfter,
         price_usdt_per_token: price_usdt_per_token.toFixed(6),
         scrapeMs,
       });
@@ -316,19 +381,22 @@ export class UniswapScraper {
         scrapeMs,
         valid: true,
       };
-
     } catch (error) {
       const scrapeMs = Date.now() - startTime;
       const failures = (this.consecutiveFailures.get(token) || 0) + 1;
       this.consecutiveFailures.set(token, failures);
 
       this.onLog("error", "scrape_failed", {
-        token, amountUsdt, scrapeMs,
+        token,
+        amountUsdt,
+        scrapeMs,
         error: error instanceof Error ? error.message : String(error),
       });
 
       return this.createInvalidQuote(
-        token, amountUsdt, "unknown",
+        token,
+        amountUsdt,
+        "unknown",
         error instanceof Error ? error.message : String(error),
         scrapeMs
       );
@@ -338,20 +406,27 @@ export class UniswapScraper {
   /**
    * Set input value with proper React event dispatching
    */
-  private async setInputValue(page: Page, inputField: any, value: number): Promise<string> {
+  private async setInputValue(
+    page: Page,
+    inputField: any,
+    value: number
+  ): Promise<string> {
     try {
       await inputField.click({ clickCount: 3 });
       await page.keyboard.press("Backspace");
       await inputField.type(value.toString(), { delay: 15 });
-      
+
       await inputField.evaluate((el: HTMLInputElement, val: string) => {
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value"
+        )?.set;
         if (setter) setter.call(el, val);
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
         el.blur();
       }, value.toString());
-      
+
       return "success";
     } catch (error) {
       return error instanceof Error ? error.message : "input_failed";
@@ -415,7 +490,9 @@ export class UniswapScraper {
   /**
    * Extract gas estimate from UI
    */
-  private async extractGas(page: Page): Promise<{ gasUsdt: number | null; gasRaw: string | null }> {
+  private async extractGas(
+    page: Page
+  ): Promise<{ gasUsdt: number | null; gasRaw: string | null }> {
     try {
       const result = await page.evaluate(() => {
         // Look for gas-related text patterns
@@ -425,9 +502,9 @@ export class UniswapScraper {
           /network fee[:\s]*\$[\d.,]+/i,
           /~\$[\d.,]+/,
         ];
-        
+
         const allText = document.body.innerText;
-        
+
         for (const pattern of gasPatterns) {
           const match = allText.match(pattern);
           if (match) {
@@ -440,7 +517,7 @@ export class UniswapScraper {
             }
           }
         }
-        
+
         return { raw: null, value: null };
       });
 
@@ -485,8 +562,10 @@ export class UniswapScraper {
     this.onLog("warn", "browser_restarting");
     try {
       await this.close();
-    } catch { /* ignore */ }
-    await new Promise(r => setTimeout(r, 2000));
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 2000));
     await this.initialize();
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
@@ -502,7 +581,7 @@ export class UniswapScraper {
 
   getErrorsLast5m(): number {
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-    return this.recentErrors.filter(e => e.timestamp > fiveMinAgo).length;
+    return this.recentErrors.filter((e) => e.timestamp > fiveMinAgo).length;
   }
 
   getLastSuccessTs(): number | null {

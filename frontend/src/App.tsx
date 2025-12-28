@@ -934,10 +934,7 @@ function App() {
                     </div>
                     <div className="flex gap-2 mt-1 justify-end">
                       <button
-                        onClick={async () => {
-                          wallet.disconnect();
-                          setTimeout(() => wallet.connect(), 100);
-                        }}
+                        onClick={() => wallet.switchWallet()}
                         className="text-xs text-blue-400 hover:text-blue-300"
                       >
                         Switch
