@@ -547,6 +547,22 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+// Scraper quotes proxy endpoint
+app.get('/api/scraper/quotes', async (req, res) => {
+  try {
+    const response = await axios.get(`${UNISWAP_SCRAPER_URL}/quotes`, { timeout: 5000 });
+    res.json(response.data);
+  } catch (error: any) {
+    console.error('Failed to fetch scraper quotes:', error.message);
+    res.status(502).json({ 
+      error: 'Scraper unavailable', 
+      details: error.message,
+      quotes: [],
+      meta: { lastSuccessTs: null, errorsLast5m: 0 }
+    });
+  }
+});
+
 app.get('/api/market', (req, res) => {
   res.json(dashboardData.market_state);
 });
