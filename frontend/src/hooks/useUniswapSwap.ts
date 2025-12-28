@@ -16,11 +16,6 @@ const ERC20_ABI = [
   'function decimals() external view returns (uint8)',
 ];
 
-// Uniswap Universal Router ABI (simplified for execute)
-const UNIVERSAL_ROUTER_ABI = [
-  'function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable',
-];
-
 export interface SwapParams {
   tokenIn: 'USDT' | 'CSR' | 'CSR25';
   tokenOut: 'USDT' | 'CSR' | 'CSR25';
