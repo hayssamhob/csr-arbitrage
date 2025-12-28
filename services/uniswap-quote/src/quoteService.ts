@@ -1,8 +1,8 @@
 import { ethers } from "ethers";
 import { Config, TokenConfig } from "./config";
+import { RpcQuoteService } from "./rpcQuoteService";
 import { CachedQuote, UniswapQuoteResult } from "./schemas";
 import { SmartRouterService } from "./smartRouterService";
-import { UniswapHttpQuoteService } from "./uniswapHttpQuoteService";
 import { V4SubgraphGatewayReader } from "./v4SubgraphGatewayReader";
 
 // ============================================================================
@@ -37,7 +37,7 @@ export class QuoteService {
   private poolId: string;
   private v4Reader: V4SubgraphGatewayReader;
   private smartRouter: SmartRouterService;
-  private httpQuoteService: UniswapHttpQuoteService;
+  private rpcQuoteService: RpcQuoteService;
   private usdtToken: TokenConfig;
   private csrToken: TokenConfig;
   private csr25Token: TokenConfig;
@@ -50,8 +50,8 @@ export class QuoteService {
     // Initialize provider - REAL ON-CHAIN DATA ONLY
     this.provider = new ethers.providers.JsonRpcProvider(config.RPC_URL);
 
-    // Initialize HTTP Quote Service (PRIMARY - uses QuoterV2 contract directly)
-    this.httpQuoteService = new UniswapHttpQuoteService(config.RPC_URL, onLog);
+    // Initialize RPC Quote Service (PRIMARY - uses QuoterV2/V2 contracts directly)
+    this.rpcQuoteService = new RpcQuoteService(config.RPC_URL, onLog);
 
     // Initialize Smart Order Router (SECONDARY - may have SDK issues)
     this.smartRouter = new SmartRouterService(config.RPC_URL, onLog);
@@ -166,24 +166,24 @@ export class QuoteService {
       this.tokenOut.symbol === "CSR" ? this.csrToken : this.csr25Token;
     const tokenType = targetToken.symbol === "CSR" ? "CSR" : "CSR25";
 
-    // PRIMARY: Use HTTP Quote Service (QuoterV2 contract directly) for REAL prices
+    // PRIMARY: Use RPC Quote Service (QuoterV2/V2 contracts directly) for REAL prices
     try {
-      const httpResult =
+      const rpcResult =
         direction === "buy"
-          ? await this.httpQuoteService.quoteBuyTokens(
+          ? await this.rpcQuoteService.getQuote(
               tokenType as "CSR" | "CSR25",
               amountUsdt
             )
-          : await this.httpQuoteService.getTokenPrice(
+          : await this.rpcQuoteService.getTokenPrice(
               tokenType as "CSR" | "CSR25"
             );
 
-      if (!httpResult.error && httpResult.effectivePrice > 0) {
-        this.onLog("info", "http_quote_success", {
+      if (!rpcResult.error && rpcResult.effectivePrice > 0) {
+        this.onLog("info", "rpc_quote_success", {
           token: targetToken.symbol,
-          price: httpResult.effectivePrice,
-          source: httpResult.source,
-          route: httpResult.route,
+          price: rpcResult.effectivePrice,
+          source: rpcResult.source,
+          route: rpcResult.route,
         });
 
         return {
@@ -191,38 +191,37 @@ export class QuoteService {
           pair: `${targetToken.symbol}/USDT`,
           chain_id: this.chainId,
           ts: now,
-          amount_in: httpResult.amountIn,
-          amount_in_unit: direction === "buy" ? "USDT" : targetToken.symbol,
-          amount_out: httpResult.amountOut,
-          amount_out_unit: direction === "buy" ? targetToken.symbol : "USDT",
-          effective_price_usdt: httpResult.effectivePrice,
-          estimated_gas: 150000,
+          amount_in: rpcResult.amountIn,
+          amount_in_unit: rpcResult.amountInUnit,
+          amount_out: rpcResult.amountOut,
+          amount_out_unit: rpcResult.amountOutUnit,
+          effective_price_usdt: rpcResult.effectivePrice,
+          estimated_gas: rpcResult.estimatedGas,
           pool_fee: 0.3,
-          price_impact: httpResult.priceImpactPercent,
-          price_impact_percent: `${httpResult.priceImpactPercent.toFixed(2)}%`,
-          gas_cost_usdt: httpResult.gasEstimateUsd,
-          gas_cost_eth: (httpResult.gasEstimateUsd / 3500).toFixed(6),
-          max_slippage: "Auto / 0.50%",
-          order_routing: "Uniswap API",
+          price_impact: rpcResult.priceImpactPercent,
+          price_impact_percent: `${rpcResult.priceImpactPercent.toFixed(2)}%`,
+          gas_cost_usdt: rpcResult.gasCostUsd,
+          gas_cost_eth: rpcResult.gasCostEth,
+          max_slippage: `Auto / ${rpcResult.slippageBps / 100}%`,
+          order_routing: rpcResult.route,
           fee_display: "Free",
           route: {
-            summary: httpResult.route,
-            pools: [httpResult.route],
+            summary: rpcResult.route,
+            pools: [rpcResult.route],
           },
           is_stale: false,
           validated: true,
-          source: "quoter_v2",
+          source: rpcResult.source,
         };
       }
 
-      this.onLog("warn", "http_quote_failed_trying_smart_router", {
+      this.onLog("warn", "rpc_quote_failed_trying_smart_router", {
         token: targetToken.symbol,
-        error: httpResult.error,
+        error: rpcResult.error,
       });
-    } catch (httpError) {
-      this.onLog("warn", "http_quote_exception", {
-        error:
-          httpError instanceof Error ? httpError.message : String(httpError),
+    } catch (rpcError) {
+      this.onLog("warn", "rpc_quote_exception", {
+        error: rpcError instanceof Error ? rpcError.message : String(rpcError),
       });
     }
 
