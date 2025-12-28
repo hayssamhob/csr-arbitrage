@@ -808,7 +808,11 @@ app.get("/api/alignment/:market", async (req, res) => {
     const impactPct =
       ((selectedQuote.price_usdt_per_token - spotPrice) / spotPrice) * 100;
     result.price_impact_pct = Math.round(impactPct * 100) / 100;
-    result.network_cost_usd = selectedQuote.gasEstimateUsdt || null;
+
+    // Find gas from any quote (gas is same for all trades at a given moment)
+    const gasQuote = validQuotes.find((q: any) => q.gasEstimateUsdt != null);
+    result.network_cost_usd =
+      gasQuote?.gasEstimateUsdt || selectedQuote.gasEstimateUsdt || null;
 
     // Build reason string
     if (gasWarning) {
