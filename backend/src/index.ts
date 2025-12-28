@@ -601,10 +601,10 @@ const ALIGNMENT_BANDS: Record<string, number> = {
   csr25_usdt: 100, // ±1.0% for CSR25
 };
 
-// Max price impact caps (soft warning, not hard block)
+// Max price impact caps - must be higher than typical needed_move to allow selection
 const MAX_IMPACT_CAPS: Record<string, number> = {
-  csr_usdt: 5.0, // warn if > 5% for CSR
-  csr25_usdt: 10.0, // warn if > 10% for CSR25
+  csr_usdt: 15.0, // allow up to 15% impact for CSR
+  csr25_usdt: 15.0, // allow up to 15% impact for CSR25
 };
 
 // Max gas as % of trade (gas gating)
