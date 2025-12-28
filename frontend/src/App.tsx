@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AlignmentPanel } from "./components/AlignmentPanel";
 import { UniswapTradePanel } from "./components/UniswapTradePanel";
 import { useWallet } from "./hooks/useWallet";
 
