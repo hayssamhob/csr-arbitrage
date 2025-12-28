@@ -7,13 +7,19 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import * as http from 'http';
-import { WebSocket, WebSocketServer } from 'ws';
+import process from "process";
+import { WebSocket, WebSocketServer } from "ws";
+
+// Use require for ethers to avoid TS module resolution issues
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const ethers = require("ethers");
 
 dotenv.config();
 
 // Configuration
-const PORT = parseInt(process.env.PORT || '8001');
-const LBANK_GATEWAY_URL = process.env.LBANK_GATEWAY_URL || 'http://localhost:3001';
+const PORT = parseInt(process.env.PORT || "8001");
+const LBANK_GATEWAY_URL =
+  process.env.LBANK_GATEWAY_URL || "http://localhost:3001";
 const LATOKEN_GATEWAY_URL =
   process.env.LATOKEN_GATEWAY_URL || "http://localhost:3006";
 const UNISWAP_QUOTE_URL =
@@ -465,23 +471,25 @@ app.use(cors());
 app.use(express.json());
 
 // HTTP Routes
-app.get('/', (req, res) => {
+app.get("/", (req, res) => {
   res.json({
-    status: 'ok',
-    service: 'csr-arbitrage-api',
-    ts: new Date().toISOString()
+    status: "ok",
+    service: "csr-arbitrage-api",
+    ts: new Date().toISOString(),
   });
 });
 
-app.get('/api/dashboard', (req, res) => {
+app.get("/api/dashboard", (req, res) => {
   res.json(dashboardData);
 });
 
 // Price history API for charts
-app.get('/api/history/:market', (req, res) => {
-  const market = req.params.market as 'csr_usdt' | 'csr25_usdt';
-  if (market !== 'csr_usdt' && market !== 'csr25_usdt') {
-    return res.status(400).json({ error: 'Invalid market. Use csr_usdt or csr25_usdt' });
+app.get("/api/history/:market", (req, res) => {
+  const market = req.params.market as "csr_usdt" | "csr25_usdt";
+  if (market !== "csr_usdt" && market !== "csr25_usdt") {
+    return res
+      .status(400)
+      .json({ error: "Invalid market. Use csr_usdt or csr25_usdt" });
   }
   res.json({
     market,
@@ -491,7 +499,7 @@ app.get('/api/history/:market', (req, res) => {
 });
 
 // Orchestrator API: /api/state - unified market state
-app.get('/api/state', (req, res) => {
+app.get("/api/state", (req, res) => {
   const state = {
     ts: dashboardData.ts,
     markets: {
@@ -500,11 +508,18 @@ app.get('/api/state', (req, res) => {
         uniswap: dashboardData.market_state?.csr_usdt?.uniswap_quote || null,
         decision: dashboardData.market_state?.csr_usdt?.decision || null,
         freshness: {
-          lbank_age_ms: dashboardData.market_state?.csr_usdt?.lbank_ticker?.ts 
-            ? Date.now() - new Date(dashboardData.market_state.csr_usdt.lbank_ticker.ts).getTime() 
+          lbank_age_ms: dashboardData.market_state?.csr_usdt?.lbank_ticker?.ts
+            ? Date.now() -
+              new Date(
+                dashboardData.market_state.csr_usdt.lbank_ticker.ts
+              ).getTime()
             : null,
-          uniswap_age_ms: dashboardData.market_state?.csr_usdt?.uniswap_quote?.ts
-            ? Date.now() - new Date(dashboardData.market_state.csr_usdt.uniswap_quote.ts).getTime()
+          uniswap_age_ms: dashboardData.market_state?.csr_usdt?.uniswap_quote
+            ?.ts
+            ? Date.now() -
+              new Date(
+                dashboardData.market_state.csr_usdt.uniswap_quote.ts
+              ).getTime()
             : null,
         },
       },
@@ -514,10 +529,17 @@ app.get('/api/state', (req, res) => {
         decision: dashboardData.market_state?.csr25_usdt?.decision || null,
         freshness: {
           lbank_age_ms: dashboardData.market_state?.csr25_usdt?.lbank_ticker?.ts
-            ? Date.now() - new Date(dashboardData.market_state.csr25_usdt.lbank_ticker.ts).getTime()
+            ? Date.now() -
+              new Date(
+                dashboardData.market_state.csr25_usdt.lbank_ticker.ts
+              ).getTime()
             : null,
-          uniswap_age_ms: dashboardData.market_state?.csr25_usdt?.uniswap_quote?.ts
-            ? Date.now() - new Date(dashboardData.market_state.csr25_usdt.uniswap_quote.ts).getTime()
+          uniswap_age_ms: dashboardData.market_state?.csr25_usdt?.uniswap_quote
+            ?.ts
+            ? Date.now() -
+              new Date(
+                dashboardData.market_state.csr25_usdt.uniswap_quote.ts
+              ).getTime()
             : null,
         },
       },
@@ -528,37 +550,43 @@ app.get('/api/state', (req, res) => {
 });
 
 // Orchestrator API: /api/health - aggregated health
-app.get('/api/health', (req, res) => {
+app.get("/api/health", (req, res) => {
   res.json(dashboardData.system_status);
 });
 
 // Orchestrator API: /api/config - sanitized config (no secrets)
-app.get('/api/config', (req, res) => {
+app.get("/api/config", (req, res) => {
   res.json({
-    execution_mode: process.env.EXECUTION_MODE || 'off',
-    kill_switch: process.env.KILL_SWITCH === 'true',
-    max_order_usdt: parseFloat(process.env.MAX_ORDER_USDT || '1000'),
-    max_daily_volume_usdt: parseFloat(process.env.MAX_DAILY_VOLUME_USDT || '10000'),
-    min_edge_bps: parseFloat(process.env.MIN_EDGE_BPS || '50'),
-    max_slippage_bps: parseFloat(process.env.MAX_SLIPPAGE_BPS || '100'),
-    max_staleness_seconds: parseFloat(process.env.MAX_STALENESS_SECONDS || '30'),
-    max_concurrent_orders: parseInt(process.env.MAX_CONCURRENT_ORDERS || '1'),
-    symbols: ['csr_usdt', 'csr25_usdt'],
+    execution_mode: process.env.EXECUTION_MODE || "off",
+    kill_switch: process.env.KILL_SWITCH === "true",
+    max_order_usdt: parseFloat(process.env.MAX_ORDER_USDT || "1000"),
+    max_daily_volume_usdt: parseFloat(
+      process.env.MAX_DAILY_VOLUME_USDT || "10000"
+    ),
+    min_edge_bps: parseFloat(process.env.MIN_EDGE_BPS || "50"),
+    max_slippage_bps: parseFloat(process.env.MAX_SLIPPAGE_BPS || "100"),
+    max_staleness_seconds: parseFloat(
+      process.env.MAX_STALENESS_SECONDS || "30"
+    ),
+    max_concurrent_orders: parseInt(process.env.MAX_CONCURRENT_ORDERS || "1"),
+    symbols: ["csr_usdt", "csr25_usdt"],
   });
 });
 
 // Scraper quotes proxy endpoint
-app.get('/api/scraper/quotes', async (req, res) => {
+app.get("/api/scraper/quotes", async (req, res) => {
   try {
-    const response = await axios.get(`${UNISWAP_SCRAPER_URL}/quotes`, { timeout: 5000 });
+    const response = await axios.get(`${UNISWAP_SCRAPER_URL}/quotes`, {
+      timeout: 5000,
+    });
     res.json(response.data);
   } catch (error: any) {
-    console.error('Failed to fetch scraper quotes:', error.message);
-    res.status(502).json({ 
-      error: 'Scraper unavailable', 
+    console.error("Failed to fetch scraper quotes:", error.message);
+    res.status(502).json({
+      error: "Scraper unavailable",
       details: error.message,
       quotes: [],
-      meta: { lastSuccessTs: null, errorsLast5m: 0 }
+      meta: { lastSuccessTs: null, errorsLast5m: 0 },
     });
   }
 });
@@ -1068,16 +1096,24 @@ app.get("/api/debug/timestamps", async (_req, res) => {
 
   try {
     const [csrResp, csr25Resp] = await Promise.all([
-      axios.get(`${UNISWAP_SCRAPER_URL}/quotes/CSR`, { timeout: 3000 }).catch(() => null),
-      axios.get(`${UNISWAP_SCRAPER_URL}/quotes/CSR25`, { timeout: 3000 }).catch(() => null),
+      axios
+        .get(`${UNISWAP_SCRAPER_URL}/quotes/CSR`, { timeout: 3000 })
+        .catch(() => null),
+      axios
+        .get(`${UNISWAP_SCRAPER_URL}/quotes/CSR25`, { timeout: 3000 })
+        .catch(() => null),
     ]);
 
     if (csrResp?.data?.quotes?.length) {
-      const latestCsr = csrResp.data.quotes.reduce((a: any, b: any) => (a.ts > b.ts ? a : b));
+      const latestCsr = csrResp.data.quotes.reduce((a: any, b: any) =>
+        a.ts > b.ts ? a : b
+      );
       csrDexTs = latestCsr.ts;
     }
     if (csr25Resp?.data?.quotes?.length) {
-      const latestCsr25 = csr25Resp.data.quotes.reduce((a: any, b: any) => (a.ts > b.ts ? a : b));
+      const latestCsr25 = csr25Resp.data.quotes.reduce((a: any, b: any) =>
+        a.ts > b.ts ? a : b
+      );
       csr25DexTs = latestCsr25.ts;
     }
   } catch {
@@ -1093,17 +1129,29 @@ app.get("/api/debug/timestamps", async (_req, res) => {
     cex: {
       csr_latoken: {
         raw_ts: latokenTicker?.ts || null,
-        parsed_date: latokenTicker?.ts ? new Date(latokenTicker.ts).toISOString() : null,
-        age_sec: latokenTicker?.ts ? Math.round((now - new Date(latokenTicker.ts).getTime()) / 1000) : null,
+        parsed_date: latokenTicker?.ts
+          ? new Date(latokenTicker.ts).toISOString()
+          : null,
+        age_sec: latokenTicker?.ts
+          ? Math.round((now - new Date(latokenTicker.ts).getTime()) / 1000)
+          : null,
         stale_threshold_sec: CEX_STALE_SEC,
-        is_stale: latokenTicker?.ts ? (now - new Date(latokenTicker.ts).getTime()) / 1000 > CEX_STALE_SEC : true,
+        is_stale: latokenTicker?.ts
+          ? (now - new Date(latokenTicker.ts).getTime()) / 1000 > CEX_STALE_SEC
+          : true,
       },
       csr25_lbank: {
         raw_ts: lbankTicker?.ts || null,
-        parsed_date: lbankTicker?.ts ? new Date(lbankTicker.ts).toISOString() : null,
-        age_sec: lbankTicker?.ts ? Math.round((now - new Date(lbankTicker.ts).getTime()) / 1000) : null,
+        parsed_date: lbankTicker?.ts
+          ? new Date(lbankTicker.ts).toISOString()
+          : null,
+        age_sec: lbankTicker?.ts
+          ? Math.round((now - new Date(lbankTicker.ts).getTime()) / 1000)
+          : null,
         stale_threshold_sec: CEX_STALE_SEC,
-        is_stale: lbankTicker?.ts ? (now - new Date(lbankTicker.ts).getTime()) / 1000 > CEX_STALE_SEC : true,
+        is_stale: lbankTicker?.ts
+          ? (now - new Date(lbankTicker.ts).getTime()) / 1000 > CEX_STALE_SEC
+          : true,
       },
     },
     dex: {
@@ -1223,7 +1271,7 @@ app.get("/api/ladder/:token", async (req, res) => {
   }
 });
 
-app.get('/api/market', (req, res) => {
+app.get("/api/market", (req, res) => {
   res.json(dashboardData.market_state);
 });
 
@@ -1242,7 +1290,8 @@ const POOL_IDS: Record<string, string> = {
 
 // Swap event signature for Uniswap v4 PoolManager
 // event Swap(PoolId indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)
-const SWAP_EVENT_SIGNATURE = "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)";
+const SWAP_EVENT_SIGNATURE =
+  "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)";
 const SWAP_EVENT_TOPIC = ethers.id(SWAP_EVENT_SIGNATURE);
 
 // Cache for recent swaps (30s TTL)
@@ -1260,7 +1309,7 @@ const provider = new ethers.JsonRpcProvider(RPC_URL);
 // Get recent swaps for a token
 app.get("/api/swaps/:token", async (req, res) => {
   const token = req.params.token.toUpperCase();
-  
+
   if (token !== "CSR" && token !== "CSR25") {
     return res.status(400).json({ error: "Invalid token. Use CSR or CSR25" });
   }
@@ -1299,16 +1348,16 @@ app.get("/api/swaps/:token", async (req, res) => {
     const logs = await provider.getLogs(filter);
 
     // Get unique block numbers for timestamp lookup
-    const blockNumbers = [...new Set(logs.map((l) => l.blockNumber))];
+    const blockNumbers = [...new Set(logs.map((l: any) => l.blockNumber))];
     const blockTimestamps: Record<number, number> = {};
 
     // Fetch block timestamps (batch for efficiency)
     await Promise.all(
-      blockNumbers.slice(0, 20).map(async (blockNum) => {
+      blockNumbers.slice(0, 20).map(async (blockNum: any) => {
         try {
           const block = await provider.getBlock(blockNum);
           if (block) {
-            blockTimestamps[blockNum] = block.timestamp;
+            blockTimestamps[blockNum as number] = block.timestamp;
           }
         } catch {
           // Ignore individual block fetch errors
@@ -1320,7 +1369,7 @@ app.get("/api/swaps/:token", async (req, res) => {
     const swaps = logs
       .slice(-20) // Last 20 swaps
       .reverse() // Most recent first
-      .map((log) => {
+      .map((log: any) => {
         try {
           // Decode non-indexed parameters: amount0, amount1, sqrtPriceX96, liquidity, tick, fee
           const abiCoder = ethers.AbiCoder.defaultAbiCoder();
@@ -1340,7 +1389,9 @@ app.get("/api/swaps/:token", async (req, res) => {
             tx_hash: log.transactionHash,
             block_number: log.blockNumber,
             timestamp: timestamp,
-            time_iso: timestamp ? new Date(timestamp * 1000).toISOString() : null,
+            time_iso: timestamp
+              ? new Date(timestamp * 1000).toISOString()
+              : null,
             type,
             amount0: amount0.toString(),
             amount1: amount1.toString(),
