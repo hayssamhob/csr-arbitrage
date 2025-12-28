@@ -129,11 +129,9 @@ export class UniswapScraper {
       defaultViewport: { width: 1920, height: 1080 },
     });
 
-    // Initialize both pages in parallel
-    await Promise.all([
-      this.initializePage("CSR"),
-      this.initializePage("CSR25"),
-    ]);
+    // Initialize pages sequentially (parallel causes timeouts on VPS)
+    await this.initializePage("CSR");
+    await this.initializePage("CSR25");
 
     this.onLog("info", "browser_initialized", {
       pages: Array.from(this.pages.keys()),
