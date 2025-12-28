@@ -62,59 +62,100 @@ export class UniswapScraper {
     }
   }
 
-  private async dismissBlockers(page: Page, token: TokenSymbol): Promise<void> {
-    const blockerTexts = [
-      "Accept",
-      "I agree",
-      "Continue",
-      "Close",
-      "Got it",
-      "Dismiss",
-      "OK",
-    ];
+  /**
+   * Aggressively dismiss ALL blockers - modals, banners, wallet prompts, cookie notices
+   * Must be called BEFORE any input interaction
+   */
+  private async dismissBlockers(
+    page: Page,
+    token: TokenSymbol
+  ): Promise<number> {
     let dismissed = 0;
 
-    for (let i = 0; i < 3; i++) {
-      let foundBlocker = false;
-      for (const text of blockerTexts) {
-        try {
-          const buttons = await page.$$(`button`);
-          for (const button of buttons) {
-            const buttonText = await button.evaluate(
-              (el: Element) => el.textContent || ""
-            );
-            if (buttonText.toLowerCase().includes(text.toLowerCase())) {
-              await button.click();
-              dismissed++;
-              foundBlocker = true;
-              await page.waitForTimeout(200);
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      }
+    // Run multiple passes to catch nested modals
+    for (let pass = 0; pass < 5; pass++) {
+      const dismissedThisPass = await page.evaluate(() => {
+        let count = 0;
 
-      try {
-        await page.evaluate(() => {
-          document.body.style.overflow = "auto";
-          const closeSelectors = [
-            '[aria-label="Close"]',
-            '[data-testid="close-icon"]',
-          ];
-          for (const sel of closeSelectors) {
-            const el = document.querySelector(sel) as HTMLElement;
-            if (el) el.click();
+        // 1. Close buttons by aria-label
+        const closeSelectors = [
+          '[aria-label="Close"]',
+          '[aria-label="close"]',
+          '[aria-label="Dismiss"]',
+          '[data-testid="close-icon"]',
+          '[data-testid="navbar-close"]',
+          'button[aria-label*="close" i]',
+          'button[aria-label*="dismiss" i]',
+        ];
+        for (const sel of closeSelectors) {
+          const els = document.querySelectorAll(sel) as NodeListOf<HTMLElement>;
+          els.forEach((el) => {
+            try {
+              el.click();
+              count++;
+            } catch {}
+          });
+        }
+
+        // 2. Buttons with dismiss-like text
+        const dismissTexts = [
+          "accept",
+          "i agree",
+          "continue",
+          "close",
+          "got it",
+          "dismiss",
+          "ok",
+          "confirm",
+          "understand",
+        ];
+        const buttons = document.querySelectorAll("button");
+        buttons.forEach((btn) => {
+          const text = (btn.textContent || "").toLowerCase().trim();
+          if (dismissTexts.some((t) => text === t || text.includes(t))) {
+            try {
+              btn.click();
+              count++;
+            } catch {}
           }
         });
-      } catch {
-        /* ignore */
-      }
 
-      if (!foundBlocker) break;
+        // 3. Remove overlay/modal backdrops
+        const overlays = document.querySelectorAll(
+          '[class*="overlay"], [class*="modal"], [class*="backdrop"], [class*="Overlay"], [class*="Modal"]'
+        );
+        overlays.forEach((el) => {
+          const style = window.getComputedStyle(el);
+          if (style.position === "fixed" || style.position === "absolute") {
+            try {
+              (el as HTMLElement).remove();
+              count++;
+            } catch {}
+          }
+        });
+
+        // 4. Ensure body is scrollable
+        document.body.style.overflow = "auto";
+        document.documentElement.style.overflow = "auto";
+
+        // 5. Click away from any focused element
+        if (
+          document.activeElement &&
+          document.activeElement !== document.body
+        ) {
+          (document.activeElement as HTMLElement).blur?.();
+        }
+
+        return count;
+      });
+
+      dismissed += dismissedThisPass;
+      if (dismissedThisPass === 0) break;
+      await page.waitForTimeout(150);
     }
 
     this.onLog("info", "blockers_dismissed", { token, count: dismissed });
+    return dismissed;
   }
 
   async initialize(): Promise<void> {
@@ -297,7 +338,7 @@ export class UniswapScraper {
   }
 
   /**
-   * Scrape single quote - fast fail with timeout and error detection
+   * Scrape single quote - robust with per-step timeouts and structured errors
    */
   async scrapeQuote(
     token: TokenSymbol,
@@ -309,18 +350,26 @@ export class UniswapScraper {
         token,
         amountUsdt,
         "selector_missing",
-        "Page not initialized",
+        "page_not_initialized",
         0
       );
     }
 
     const startTime = Date.now();
-    const perQuoteTimeout = 5000; // 5 second max per quote
 
     try {
-      // Check for error state first (fail-fast)
+      // STEP 1: Dismiss ALL blockers before any interaction (2s timeout)
+      await Promise.race([
+        this.dismissBlockers(page, token),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("blocker_dismiss_timeout")), 2000)
+        ),
+      ]).catch(() => {}); // Continue even if blocker dismiss times out
+
+      // STEP 2: Check for error state (no liquidity, etc)
       const errorState = await this.checkErrorState(page);
       if (errorState) {
+        await this.saveScreenshot(page, token, `error-${amountUsdt}`);
         this.onLog("warn", "error_state_detected", {
           token,
           amountUsdt,
@@ -330,39 +379,90 @@ export class UniswapScraper {
           token,
           amountUsdt,
           "ui_changed",
-          `UI error: ${errorState}`,
+          errorState === "insufficient liquidity"
+            ? "no_liquidity"
+            : `ui_error: ${errorState}`,
           Date.now() - startTime
         );
       }
 
-      // Find input fields
+      // STEP 3: Find input fields (1s timeout)
       const inputSelector = 'input[inputmode="decimal"]';
-      const inputs = await page.$$(inputSelector);
-
-      if (inputs.length < 2) {
+      let inputs;
+      try {
+        inputs = await Promise.race([
+          page.$$(inputSelector),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("input_find_timeout")), 1000)
+          ),
+        ]);
+      } catch {
+        await this.saveScreenshot(page, token, `no-inputs-${amountUsdt}`);
         return this.createInvalidQuote(
           token,
           amountUsdt,
           "selector_missing",
-          "Inputs not found",
+          "input_find_timeout",
+          Date.now() - startTime
+        );
+      }
+
+      if (inputs.length < 2) {
+        await this.saveScreenshot(page, token, `inputs-missing-${amountUsdt}`);
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "selector_missing",
+          `found_${inputs.length}_inputs_need_2`,
           Date.now() - startTime
         );
       }
 
       const inputField = inputs[0];
 
-      // Get output before
+      // STEP 4: Verify input is editable
+      const { editable, reason: editableReason } =
+        await this.verifyInputEditable(page, inputField);
+      if (!editable) {
+        await this.saveScreenshot(
+          page,
+          token,
+          `input-not-editable-${amountUsdt}`
+        );
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "selector_missing",
+          editableReason || "input_not_editable",
+          Date.now() - startTime
+        );
+      }
+
+      // STEP 5: Get output value before setting input
       const outputBefore = await this.getOutputValue(page);
 
-      // Set input with timeout
-      const inputResult = await Promise.race([
-        this.setInputValue(page, inputField, amountUsdt),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error("Input timeout")), perQuoteTimeout)
-        ),
-      ]);
+      // STEP 6: Set input value (3s timeout) - NO typing, only native setter
+      let inputResult: string;
+      try {
+        inputResult = await Promise.race([
+          this.setInputValue(page, inputField, amountUsdt),
+          new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error("input_set_timeout")), 3000)
+          ),
+        ]);
+      } catch (e) {
+        await this.saveScreenshot(page, token, `input-timeout-${amountUsdt}`);
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "timeout",
+          "input_set_timeout",
+          Date.now() - startTime
+        );
+      }
 
       if (inputResult !== "success") {
+        await this.saveScreenshot(page, token, `input-failed-${amountUsdt}`);
         return this.createInvalidQuote(
           token,
           amountUsdt,
@@ -372,13 +472,14 @@ export class UniswapScraper {
         );
       }
 
-      // Wait for output change (max 4s)
+      // STEP 7: Wait for output to change (4s timeout)
       const { value: outputAfter, raw: outputRaw } =
         await this.waitForOutputChange(page, outputBefore, 4000);
 
-      // Check for error state after input (insufficient liquidity may appear now)
+      // STEP 8: Check for error state after input
       const postErrorState = await this.checkErrorState(page);
       if (postErrorState) {
+        await this.saveScreenshot(page, token, `post-error-${amountUsdt}`);
         this.onLog("warn", "post_input_error_detected", {
           token,
           amountUsdt,
@@ -388,17 +489,20 @@ export class UniswapScraper {
           token,
           amountUsdt,
           "ui_changed",
-          `UI error after input: ${postErrorState}`,
+          postErrorState === "insufficient liquidity"
+            ? "no_liquidity"
+            : `post_input_error: ${postErrorState}`,
           Date.now() - startTime
         );
       }
 
       if (outputAfter === null || outputAfter <= 0) {
+        await this.saveScreenshot(page, token, `no-output-${amountUsdt}`);
         return this.createInvalidQuote(
           token,
           amountUsdt,
           "timeout",
-          "Output unchanged",
+          "output_unchanged_or_zero",
           Date.now() - startTime
         );
       }
@@ -464,7 +568,42 @@ export class UniswapScraper {
   }
 
   /**
-   * Set input value with proper React event dispatching
+   * Verify input is editable (not disabled, not readonly, visible)
+   */
+  private async verifyInputEditable(
+    page: Page,
+    inputField: any
+  ): Promise<{ editable: boolean; reason?: string }> {
+    try {
+      const state = await inputField.evaluate((el: HTMLInputElement) => {
+        const style = window.getComputedStyle(el);
+        return {
+          disabled: el.disabled,
+          readonly: el.readOnly,
+          hidden: style.display === "none" || style.visibility === "hidden",
+          width: el.offsetWidth,
+          height: el.offsetHeight,
+          pointerEvents: style.pointerEvents,
+        };
+      });
+
+      if (state.disabled) return { editable: false, reason: "input_disabled" };
+      if (state.readonly) return { editable: false, reason: "input_readonly" };
+      if (state.hidden) return { editable: false, reason: "input_hidden" };
+      if (state.width === 0 || state.height === 0)
+        return { editable: false, reason: "input_zero_size" };
+      if (state.pointerEvents === "none")
+        return { editable: false, reason: "input_no_pointer_events" };
+
+      return { editable: true };
+    } catch (error) {
+      return { editable: false, reason: "input_check_failed" };
+    }
+  }
+
+  /**
+   * Set input value using ONLY native setter + event dispatch
+   * DO NOT use input.type() - it's unreliable
    */
   private async setInputValue(
     page: Page,
@@ -472,29 +611,78 @@ export class UniswapScraper {
     value: number
   ): Promise<string> {
     try {
-      // Click to focus and triple-click to select all
-      await inputField.click({ clickCount: 3 });
+      // Step 1: Verify input is editable
+      const { editable, reason } = await this.verifyInputEditable(
+        page,
+        inputField
+      );
+      if (!editable) {
+        return `input_not_editable: ${reason}`;
+      }
 
-      // Small delay for UI to register selection
-      await new Promise((r) => setTimeout(r, 50));
+      // Step 2: Focus the input by clicking
+      await inputField.click();
+      await page.waitForTimeout(50);
 
-      // Type the new value (this replaces selection)
-      await inputField.type(value.toString(), { delay: 20 });
+      // Step 3: Clear and set value using NATIVE SETTER ONLY (no typing)
+      const setResult = await inputField.evaluate(
+        (el: HTMLInputElement, val: string) => {
+          try {
+            // Focus
+            el.focus();
 
-      // Dispatch React events to trigger state update
-      await inputField.evaluate((el: HTMLInputElement, val: string) => {
-        const setter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype,
-          "value"
-        )?.set;
-        if (setter) setter.call(el, val);
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-        el.blur();
-      }, value.toString());
+            // Get native setter
+            const setter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype,
+              "value"
+            )?.set;
 
-      // Small delay to let React process
-      await new Promise((r) => setTimeout(r, 100));
+            if (!setter) {
+              return "no_setter";
+            }
+
+            // Clear first
+            setter.call(el, "");
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+
+            // Small delay
+            // Set new value
+            setter.call(el, val);
+
+            // Dispatch all events React needs
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+
+            // Blur to trigger any onBlur handlers
+            el.blur();
+            el.dispatchEvent(new Event("blur", { bubbles: true }));
+
+            return "ok";
+          } catch (e) {
+            return "setter_error: " + String(e);
+          }
+        },
+        value.toString()
+      );
+
+      if (setResult !== "ok") {
+        return setResult;
+      }
+
+      // Step 4: Verify the value was set
+      await page.waitForTimeout(100);
+      const currentValue = await inputField.evaluate(
+        (el: HTMLInputElement) => el.value
+      );
+      const expectedStr = value.toString();
+
+      if (
+        currentValue !== expectedStr &&
+        currentValue.replace(/,/g, "") !== expectedStr
+      ) {
+        return `value_mismatch: expected ${expectedStr}, got ${currentValue}`;
+      }
 
       return "success";
     } catch (error) {
