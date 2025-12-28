@@ -280,7 +280,7 @@ export function AlignmentDisplay({
         </div>
       </div>
 
-      {/* RECOMMENDED ACTION - From Backend */}
+      {/* RECOMMENDED TRADE - From Backend */}
       <div
         className={`p-5 rounded-xl border-2 ${
           isBuy
@@ -291,44 +291,32 @@ export function AlignmentDisplay({
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <span className="text-2xl">⚡</span>
-            <span className="text-lg font-bold text-white">Required Trade</span>
-          </div>
-          <span
-            className={`px-4 py-2 rounded-lg font-bold text-white ${
-              isBuy ? "bg-emerald-600" : "bg-red-600"
-            }`}
-          >
-            {isBuy ? "BUY" : "SELL"} on Uniswap
-          </span>
-        </div>
-
-        {/* Key Metrics - Gas Cost and Price Impact from scraping */}
-        <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-          <div className="bg-slate-900/70 rounded-xl p-4">
-            <div className="text-xs text-slate-500 mb-1">Current Gas Cost</div>
-            <div className="font-mono text-2xl text-white">
-              {alignment.network_cost_usd !== null
-                ? `$${alignment.network_cost_usd.toFixed(2)}`
-                : "—"}
-            </div>
-            <div className="text-xs text-slate-500 mt-1">
-              Network fee (from scraping)
-            </div>
-          </div>
-          <div className="bg-slate-900/70 rounded-xl p-4">
-            <div className="text-xs text-slate-500 mb-1">Avg Price Impact</div>
-            <div className="font-mono text-2xl text-white">
-              {alignment.price_impact_pct !== null
-                ? `${alignment.price_impact_pct.toFixed(2)}%`
-                : "—"}
-            </div>
-            <div className="text-xs text-slate-500 mt-1">
-              See Trade Simulations for sizes
-            </div>
+            <span className="text-lg font-bold text-white">
+              Recommended Trade
+            </span>
           </div>
         </div>
 
-        {/* Confidence & Execute */}
+        {/* Recommended Amount to close gap */}
+        <div className="bg-slate-900/70 rounded-xl p-4 mb-4">
+          <div className="text-xs text-slate-400 mb-2">
+            Amount to close CEX/DEX gap
+          </div>
+          <div className="flex items-baseline gap-3">
+            <span className="text-3xl font-mono font-bold text-white">
+              ${alignment.required_usdt?.toLocaleString() || "—"}
+            </span>
+            <span className="text-sm text-slate-400">USDT</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Impact: {alignment.price_impact_pct?.toFixed(2) || "—"}% | Gas:{" "}
+            {alignment.network_cost_usd !== null
+              ? `$${alignment.network_cost_usd.toFixed(2)}`
+              : "—"}
+          </div>
+        </div>
+
+        {/* Confidence & Single Action Button */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs">
             <span
@@ -358,13 +346,13 @@ export function AlignmentDisplay({
                     alignment.required_usdt!
                   )
                 }
-                className={`px-6 py-2 rounded-lg font-bold text-white transition-all hover:scale-105 ${
+                className={`px-6 py-3 rounded-lg font-bold text-white transition-all hover:scale-105 ${
                   isBuy
                     ? "bg-emerald-600 hover:bg-emerald-500"
                     : "bg-red-600 hover:bg-red-500"
                 }`}
               >
-                Execute Trade →
+                {isBuy ? "BUY" : "SELL"} on Uniswap →
               </button>
             )}
         </div>

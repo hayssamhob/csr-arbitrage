@@ -12,6 +12,7 @@ interface UniswapTradePanelProps {
   direction: "buy" | "sell";
   dexPrice: number;
   cexPrice: number;
+  recommendedAmount?: number;
 }
 
 export function UniswapTradePanel({
@@ -19,8 +20,10 @@ export function UniswapTradePanel({
   direction,
   dexPrice,
   cexPrice,
+  recommendedAmount,
 }: UniswapTradePanelProps) {
-  const [amount, setAmount] = useState("100");
+  // Use recommended amount as default, fall back to 100
+  const [amount, setAmount] = useState(recommendedAmount?.toString() || "100");
 
   const inputToken = direction === "buy" ? "USDT" : token;
   const outputToken = direction === "buy" ? token : "USDT";

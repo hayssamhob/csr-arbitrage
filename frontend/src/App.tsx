@@ -204,6 +204,9 @@ function App() {
   const [showTradePanel, setShowTradePanel] = useState<{
     token: "CSR" | "CSR25";
     direction: "buy" | "sell";
+    recommendedAmount: number;
+    dexPrice: number;
+    cexPrice: number;
   } | null>(null);
   const [executionMode, setExecutionMode] = useState<"OFF" | "MANUAL" | "AUTO">(
     "OFF"
@@ -375,12 +378,23 @@ function App() {
   const handleAlignmentExecute = (
     token: "CSR" | "CSR25",
     direction: string,
-    _usdtAmount: number
+    usdtAmount: number
   ) => {
     const isBuy = direction === "BUY";
+    // Get the alignment data for this token to get correct prices
+    const alignment =
+      token === "CSR" ? alignmentData?.csr_usdt : alignmentData?.csr25_usdt;
+
+    // Use expected_exec_price as DEX price (from scraping), cex_mid as CEX price
+    const dexPrice = alignment?.expected_exec_price || 0;
+    const cexPrice = alignment?.cex_mid || 0;
+
     setShowTradePanel({
       token,
       direction: isBuy ? "buy" : "sell",
+      recommendedAmount: usdtAmount,
+      dexPrice,
+      cexPrice,
     });
   };
 
@@ -535,18 +549,9 @@ function App() {
             <UniswapTradePanel
               token={showTradePanel.token}
               direction={showTradePanel.direction}
-              dexPrice={
-                showTradePanel.token === "CSR"
-                  ? data.market_state?.csr_usdt?.uniswap_quote
-                      ?.effective_price_usdt || 0
-                  : data.market_state?.csr25_usdt?.uniswap_quote
-                      ?.effective_price_usdt || 0
-              }
-              cexPrice={
-                showTradePanel.token === "CSR"
-                  ? data.market_state?.csr_usdt?.latoken_ticker?.ask || 0
-                  : data.market_state?.csr25_usdt?.lbank_ticker?.ask || 0
-              }
+              dexPrice={showTradePanel.dexPrice}
+              cexPrice={showTradePanel.cexPrice}
+              recommendedAmount={showTradePanel.recommendedAmount}
             />
           </div>
         </div>
