@@ -774,32 +774,109 @@ export class UniswapScraper {
   }
 
   /**
-   * Extract gas estimate from UI
+   * Extract gas estimate from UI - improved for modern Uniswap interface
    */
   private async extractGas(
     page: Page
   ): Promise<{ gasUsdt: number | null; gasRaw: string | null }> {
     try {
       const result = await page.evaluate(() => {
-        // Look for gas-related text patterns
+        // Method 1: Look for specific Uniswap gas UI elements
+        // The swap details section often contains "Network cost" or gas info
+        const selectors = [
+          '[data-testid="swap-details-gas-fee"]',
+          '[class*="GasEstimate"]',
+          '[class*="gas-estimate"]',
+          '[class*="NetworkFee"]',
+          '[class*="network-fee"]',
+        ];
+
+        for (const selector of selectors) {
+          const el = document.querySelector(selector);
+          if (el && el.textContent) {
+            const text = el.textContent;
+            const match = text.match(/\$?([\d.,]+)/);
+            if (match) {
+              return {
+                raw: text.trim(),
+                value: parseFloat(match[1].replace(/,/g, "")),
+              };
+            }
+          }
+        }
+
+        // Method 2: Look for expandable swap details section
+        // Click to expand if needed, then look for gas info
+        const detailsButton = document.querySelector(
+          '[data-testid="swap-details-header"]'
+        );
+        if (detailsButton) {
+          const expanded = document.querySelector(
+            '[data-testid="swap-details-expanded"]'
+          );
+          if (expanded) {
+            const gasRow = expanded.querySelector(
+              '[class*="gas"], [class*="network"]'
+            );
+            if (gasRow && gasRow.textContent) {
+              const match = gasRow.textContent.match(/\$?([\d.,]+)/);
+              if (match) {
+                return {
+                  raw: gasRow.textContent.trim(),
+                  value: parseFloat(match[1].replace(/,/g, "")),
+                };
+              }
+            }
+          }
+        }
+
+        // Method 3: Look for any text containing gas/network fee patterns
         const gasPatterns = [
-          /\$[\d.,]+\s*gas/i,
-          /gas[:\s]*\$[\d.,]+/i,
-          /network fee[:\s]*\$[\d.,]+/i,
-          /~\$[\d.,]+/,
+          /network\s*cost[:\s]*~?\$?([\d.,]+)/i,
+          /gas[:\s]*~?\$?([\d.,]+)/i,
+          /fee[:\s]*~?\$?([\d.,]+)/i,
+          /~\$?([\d.,]+)\s*(?:gas|fee|network)/i,
         ];
 
         const allText = document.body.innerText;
-
         for (const pattern of gasPatterns) {
           const match = allText.match(pattern);
-          if (match) {
-            const numMatch = match[0].match(/[\d.,]+/);
-            if (numMatch) {
+          if (match && match[1]) {
+            const value = parseFloat(match[1].replace(/,/g, ""));
+            if (value > 0 && value < 1000) {
+              // Sanity check: gas should be reasonable
               return {
                 raw: match[0],
-                value: parseFloat(numMatch[0].replace(/,/g, "")),
+                value: value,
               };
+            }
+          }
+        }
+
+        // Method 4: Look for small dollar amounts near bottom of swap card
+        // (gas is usually displayed as a small amount like $0.50 - $10)
+        const spans = document.querySelectorAll("span, div");
+        for (const span of Array.from(spans)) {
+          const text = span.textContent || "";
+          const match = text.match(/^\s*~?\$?([\d.]+)\s*$/);
+          if (match) {
+            const value = parseFloat(match[1]);
+            if (value > 0.1 && value < 50) {
+              // Typical gas range
+              // Verify this is near gas-related content
+              const parent = span.parentElement;
+              if (
+                parent &&
+                parent.textContent &&
+                (parent.textContent.toLowerCase().includes("gas") ||
+                  parent.textContent.toLowerCase().includes("network") ||
+                  parent.textContent.toLowerCase().includes("fee"))
+              ) {
+                return {
+                  raw: `$${value}`,
+                  value: value,
+                };
+              }
             }
           }
         }
@@ -807,11 +884,19 @@ export class UniswapScraper {
         return { raw: null, value: null };
       });
 
+      if (result.value !== null) {
+        this.onLog("debug", "gas_extracted", {
+          gasUsdt: result.value,
+          gasRaw: result.raw,
+        });
+      }
+
       return {
         gasUsdt: result.value,
         gasRaw: result.raw,
       };
-    } catch {
+    } catch (error) {
+      this.onLog("warn", "gas_extraction_failed", { error: String(error) });
       return { gasUsdt: null, gasRaw: null };
     }
   }

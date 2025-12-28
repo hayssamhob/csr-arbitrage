@@ -629,6 +629,17 @@ function App() {
           </div>
         </section>
 
+        {/* TRADE SIMULATIONS: Quote Ladder - Moved above Market Context */}
+        <section className="mb-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-3">
+            Trade Simulations (Uniswap UI Scrape)
+          </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <QuoteLadder token="CSR" />
+            <QuoteLadder token="CSR25" />
+          </div>
+        </section>
+
         {/* SECONDARY: Market Context (Collapsed) */}
         <section className="mb-6">
           <h3 className="text-sm font-medium text-slate-400 mb-3">
@@ -695,17 +706,6 @@ function App() {
                   : null
               }
             />
-          </div>
-        </section>
-
-        {/* TRADE SIMULATIONS: Quote Ladder */}
-        <section className="mb-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-3">
-            Trade Simulations (Uniswap UI Scrape)
-          </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <QuoteLadder token="CSR" />
-            <QuoteLadder token="CSR25" />
           </div>
         </section>
 
