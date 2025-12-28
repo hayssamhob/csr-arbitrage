@@ -183,7 +183,7 @@ async function main() {
     });
   };
 
-  // Scraping loop
+  // Scraping loop - parallel scraping for speed
   const scrapeAll = async () => {
     if (scrapeInProgress || !scraper) {
       return;
@@ -192,41 +192,16 @@ async function main() {
     scrapeInProgress = true;
     const startTime = Date.now();
 
-    for (const token of ["CSR", "CSR25"] as TokenSymbol[]) {
-      const quotes: QuoteData[] = [];
+    try {
+      // Use parallel scraping for both tokens
+      const { csr, csr25 } = await scraper.scrapeAll(config.quoteSizesUsdt);
 
-      for (const size of config.quoteSizesUsdt) {
-        try {
-          const quote = await scraper.scrapeQuote(token, size);
-          quotes.push(quote);
-        } catch (error) {
-          log("error", "scrape_quote_error", {
-            token,
-            size,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          quotes.push({
-            market: `${token}_USDT`,
-            inputToken: "USDT",
-            outputToken: token,
-            amountInUSDT: size,
-            amountOutToken: "0",
-            effectivePriceUsdtPerToken: 0,
-            gasEstimateUsdt: 0,
-            route: "none",
-            ts: Math.floor(Date.now() / 1000),
-            valid: false,
-            reason: `scrape_error: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          });
-        }
-
-        // Small delay between sizes to avoid overwhelming the UI
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
-
-      latestQuotes.set(token, quotes);
+      latestQuotes.set("CSR", csr);
+      latestQuotes.set("CSR25", csr25);
+    } catch (error) {
+      log("error", "scrape_cycle_error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const duration = Date.now() - startTime;

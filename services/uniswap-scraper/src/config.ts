@@ -35,9 +35,12 @@ export interface ScraperConfig {
 }
 
 export function loadConfig(): ScraperConfig {
-  const quoteSizesStr = process.env.QUOTE_SIZES_USDT || "10,25,50,100,250,500,1000";
-  const chromeArgsStr = process.env.CHROME_ARGS || "--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu,--disable-software-rasterizer";
-  
+  // Reduced default sizes for faster cycles (target: <=30s per cycle)
+  const quoteSizesStr = process.env.QUOTE_SIZES_USDT || "50,100,250,500";
+  const chromeArgsStr =
+    process.env.CHROME_ARGS ||
+    "--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu,--disable-software-rasterizer";
+
   return {
     scrapeIntervalMs: parseInt(process.env.SCRAPE_INTERVAL_MS || "10000", 10),
     uniswapTimeoutMs: parseInt(process.env.UNISWAP_TIMEOUT_MS || "30000", 10),

@@ -8,12 +8,25 @@ export interface QuoteData {
   market: string;
   inputToken: string;
   outputToken: string;
+
+  // Raw and parsed amounts
   amountInUSDT: number;
-  amountOutToken: string;
-  effectivePriceUsdtPerToken: number;
-  gasEstimateUsdt: number;
+  amountInRaw: string;
+  amountOutToken: number;
+  amountOutRaw: string;
+
+  // Price calculations
+  price_usdt_per_token: number; // USDT needed to buy 1 token
+  price_token_per_usdt: number; // tokens received per 1 USDT
+  usdt_for_1_token: number; // alias for price_usdt_per_token (UI convenience)
+
+  // Gas (null if unavailable, NOT 0)
+  gasEstimateUsdt: number | null;
+  gasRaw: string | null;
+
   route: string;
   ts: number;
+  scrapeMs: number;
   valid: boolean;
   reason?: string;
 }

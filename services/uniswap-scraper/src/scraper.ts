@@ -6,14 +6,18 @@ import { LogFn, QuoteData, ScrapeError, TokenSymbol } from "./types";
 
 const DEBUG_DIR = "/tmp/uniswap-debug";
 
+// Sanity check bounds (configurable)
+const PRICE_CHANGE_THRESHOLD = 0.30; // 30% max change from last good quote
+
 /**
- * Observable Uniswap UI Scraper
- *
- * Priority: Visibility and non-blocking behavior
- * - Screenshots at each stage
- * - HTML snapshots for debugging
- * - Fast fail (no hanging)
- * - Proper React input dispatching
+ * Hardened Uniswap UI Scraper
+ * 
+ * Features:
+ * - Enriched output with explicit price calculations
+ * - Sanity checks to reject bad reads
+ * - Parallel scraping for speed
+ * - Gas extraction from UI
+ * - Last-known-good quote tracking
  */
 export class UniswapScraper {
   private browser: Browser | null = null;
@@ -23,145 +27,70 @@ export class UniswapScraper {
   private consecutiveFailures: Map<TokenSymbol, number> = new Map();
   private recentErrors: ScrapeError[] = [];
   private lastSuccessTs: number | null = null;
+  
+  // Last known good quotes for sanity checking
+  private lastGoodQuotes: Map<string, QuoteData> = new Map();
+  
+  // Track if pages are warmed up (first scrape done)
+  private warmedUp: Map<TokenSymbol, boolean> = new Map();
 
   constructor(config: ScraperConfig, onLog: LogFn) {
     this.config = config;
     this.onLog = onLog;
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
+    this.warmedUp.set("CSR", false);
+    this.warmedUp.set("CSR25", false);
 
-    // Ensure debug directory exists
     if (!fs.existsSync(DEBUG_DIR)) {
       fs.mkdirSync(DEBUG_DIR, { recursive: true });
     }
   }
 
-  /**
-   * Save screenshot for debugging
-   */
-  private async saveScreenshot(
-    page: Page,
-    token: TokenSymbol,
-    stage: string
-  ): Promise<string> {
+  private async saveScreenshot(page: Page, token: TokenSymbol, stage: string): Promise<string> {
     const filename = `${token}-${stage}-${Date.now()}.png`;
     const filepath = path.join(DEBUG_DIR, filename);
     try {
       await page.screenshot({ path: filepath, fullPage: true });
-      this.onLog("debug", "screenshot_saved", { token, stage, filepath });
       return filepath;
-    } catch (error) {
-      this.onLog("warn", "screenshot_failed", {
-        token,
-        stage,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
       return "";
     }
   }
 
-  /**
-   * Save HTML snapshot for debugging
-   */
-  private async saveHtml(
-    page: Page,
-    token: TokenSymbol,
-    stage: string
-  ): Promise<string> {
-    const filename = `${token}-${stage}-${Date.now()}.html`;
-    const filepath = path.join(DEBUG_DIR, filename);
-    try {
-      const content = await page.content();
-      fs.writeFileSync(filepath, content);
-      this.onLog("debug", "html_saved", { token, stage, filepath });
-      return filepath;
-    } catch (error) {
-      this.onLog("warn", "html_save_failed", {
-        token,
-        stage,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return "";
-    }
-  }
-
-  /**
-   * Dismiss ALL blocking modals - run until no blockers found
-   */
   private async dismissBlockers(page: Page, token: TokenSymbol): Promise<void> {
-    const blockerTexts = [
-      "Accept",
-      "I agree",
-      "Continue",
-      "Close",
-      "Got it",
-      "Dismiss",
-      "OK",
-    ];
+    const blockerTexts = ["Accept", "I agree", "Continue", "Close", "Got it", "Dismiss", "OK"];
     let dismissed = 0;
-    const maxIterations = 5;
 
-    for (let i = 0; i < maxIterations; i++) {
+    for (let i = 0; i < 3; i++) {
       let foundBlocker = false;
-
-      // Try clicking buttons with blocker text
       for (const text of blockerTexts) {
         try {
           const buttons = await page.$$(`button`);
           for (const button of buttons) {
-            const buttonText = await button.evaluate(
-              (el) => el.textContent || ""
-            );
+            const buttonText = await button.evaluate((el: Element) => el.textContent || "");
             if (buttonText.toLowerCase().includes(text.toLowerCase())) {
               await button.click();
               dismissed++;
               foundBlocker = true;
-              this.onLog("debug", "blocker_clicked", {
-                token,
-                text: buttonText,
-              });
-              await page.waitForTimeout(300);
+              await page.waitForTimeout(200);
             }
           }
-        } catch {
-          // Button might have disappeared
-        }
+        } catch { /* ignore */ }
       }
-
-      // Try to close any modal overlays
+      
       try {
         await page.evaluate(() => {
-          // Remove overflow:hidden from body
           document.body.style.overflow = "auto";
-
-          // Try to find and click close buttons on modals
-          const closeSelectors = [
-            '[aria-label="Close"]',
-            '[data-testid="close-icon"]',
-            'button[aria-label*="close"]',
-            ".modal-close",
-          ];
+          const closeSelectors = ['[aria-label="Close"]', '[data-testid="close-icon"]'];
           for (const sel of closeSelectors) {
             const el = document.querySelector(sel) as HTMLElement;
-            if (el) {
-              el.click();
-            }
+            if (el) el.click();
           }
-
-          // Hide modal overlays
-          const overlays = document.querySelectorAll(
-            '[class*="overlay"], [class*="modal"], [class*="backdrop"]'
-          );
-          overlays.forEach((el) => {
-            (el as HTMLElement).style.display = "none";
-          });
         });
-      } catch {
-        // Ignore errors
-      }
+      } catch { /* ignore */ }
 
       if (!foundBlocker) break;
-      await page.waitForTimeout(200);
     }
 
     this.onLog("info", "blockers_dismissed", { token, count: dismissed });
@@ -179,14 +108,19 @@ export class UniswapScraper {
       defaultViewport: { width: 1920, height: 1080 },
     });
 
-    // Initialize pages for each token
-    for (const token of ["CSR", "CSR25"] as TokenSymbol[]) {
-      await this.initializePage(token);
-    }
+    // Initialize both pages in parallel
+    await Promise.all([
+      this.initializePage("CSR"),
+      this.initializePage("CSR25"),
+    ]);
 
     this.onLog("info", "browser_initialized", {
       pages: Array.from(this.pages.keys()),
     });
+    
+    // Warm-up delay after page load
+    this.onLog("info", "warmup_delay", { delayMs: 2000 });
+    await new Promise(r => setTimeout(r, 2000));
   }
 
   private async initializePage(token: TokenSymbol): Promise<void> {
@@ -195,7 +129,6 @@ export class UniswapScraper {
     const page = await this.browser.newPage();
     await page.setUserAgent(this.config.userAgent);
 
-    // Don't block stylesheets - we need to see the UI properly
     if (this.config.blockResources) {
       await page.setRequestInterception(true);
       page.on("request", (req) => {
@@ -217,13 +150,9 @@ export class UniswapScraper {
         timeout: this.config.uniswapTimeoutMs,
       });
 
-      // Save debug artifacts after load
       await this.saveScreenshot(page, token, "01-after-load");
-      await this.saveHtml(page, token, "01-after-load");
-
       this.onLog("info", "page_loaded", { token });
 
-      // Dismiss blockers
       await this.dismissBlockers(page, token);
       await this.saveScreenshot(page, token, "02-after-blockers");
 
@@ -238,156 +167,135 @@ export class UniswapScraper {
   }
 
   /**
-   * Scrape quote - non-blocking, fast fail
+   * Scrape quotes for a token with all configured sizes
    */
-  async scrapeQuote(
-    token: TokenSymbol,
-    amountUsdt: number
-  ): Promise<QuoteData> {
+  async scrapeToken(token: TokenSymbol, sizes: number[]): Promise<QuoteData[]> {
+    const quotes: QuoteData[] = [];
+    
+    for (const size of sizes) {
+      const quote = await this.scrapeQuote(token, size);
+      
+      // Apply sanity checks
+      const validatedQuote = this.validateQuote(quote, token, size);
+      quotes.push(validatedQuote);
+      
+      // Small delay between sizes to let UI settle
+      await new Promise(r => setTimeout(r, 200));
+    }
+    
+    return quotes;
+  }
+
+  /**
+   * Scrape both tokens in parallel
+   */
+  async scrapeAll(sizes: number[]): Promise<{ csr: QuoteData[], csr25: QuoteData[] }> {
+    const [csrQuotes, csr25Quotes] = await Promise.all([
+      this.scrapeToken("CSR", sizes),
+      this.scrapeToken("CSR25", sizes),
+    ]);
+    
+    return { csr: csrQuotes, csr25: csr25Quotes };
+  }
+
+  /**
+   * Validate quote against sanity rules
+   */
+  private validateQuote(quote: QuoteData, token: TokenSymbol, size: number): QuoteData {
+    const key = `${token}_${size}`;
+    const lastGood = this.lastGoodQuotes.get(key);
+    
+    // Rule 1: Reject zero/NaN output
+    if (!quote.valid || quote.amountOutToken <= 0 || isNaN(quote.amountOutToken)) {
+      return quote; // Already invalid
+    }
+    
+    // Rule 2: Check price change vs last good (if exists)
+    if (lastGood && lastGood.price_usdt_per_token > 0) {
+      const priceChange = Math.abs(quote.price_usdt_per_token - lastGood.price_usdt_per_token) / lastGood.price_usdt_per_token;
+      
+      if (priceChange > PRICE_CHANGE_THRESHOLD) {
+        this.onLog("warn", "quote_rejected_price_change", {
+          token, size,
+          newPrice: quote.price_usdt_per_token,
+          lastPrice: lastGood.price_usdt_per_token,
+          changePercent: (priceChange * 100).toFixed(1),
+        });
+        
+        // Return last good quote instead
+        return {
+          ...lastGood,
+          reason: `price_change_rejected: ${(priceChange * 100).toFixed(1)}% change`,
+        };
+      }
+    }
+    
+    // Quote passed sanity checks - update last known good
+    this.lastGoodQuotes.set(key, quote);
+    return quote;
+  }
+
+  /**
+   * Scrape single quote - fast fail with timeout
+   */
+  async scrapeQuote(token: TokenSymbol, amountUsdt: number): Promise<QuoteData> {
     const page = this.pages.get(token);
     if (!page) {
-      return this.createInvalidQuote(
-        token,
-        amountUsdt,
-        "selector_missing",
-        "Page not initialized"
-      );
+      return this.createInvalidQuote(token, amountUsdt, "selector_missing", "Page not initialized", 0);
     }
 
     const startTime = Date.now();
-    const maxDuration = 10000; // 10 second max per quote
+    const perQuoteTimeout = 4000; // 4 second max per quote
 
     try {
-      // Step 1: Find input field
-      this.onLog("debug", "finding_input", { token, amountUsdt });
-
+      // Find input fields
       const inputSelector = 'input[inputmode="decimal"]';
       const inputs = await page.$$(inputSelector);
 
-      if (inputs.length === 0) {
-        await this.saveScreenshot(page, token, `03-no-inputs-${amountUsdt}`);
-        return this.createInvalidQuote(
-          token,
-          amountUsdt,
-          "selector_missing",
-          "No decimal inputs found"
-        );
+      if (inputs.length < 2) {
+        return this.createInvalidQuote(token, amountUsdt, "selector_missing", "Inputs not found", Date.now() - startTime);
       }
 
-      this.onLog("info", "input_field_found", {
-        token,
-        inputCount: inputs.length,
-      });
-
-      // Use first input (the "You pay" field)
       const inputField = inputs[0];
 
-      // Step 2: Get current output value (before setting input)
+      // Get output before
       const outputBefore = await this.getOutputValue(page);
-      this.onLog("debug", "output_before", { token, outputBefore });
 
-      // Step 3: Set input value with proper React dispatching (with timeout)
-      this.onLog("debug", "setting_input", { token, amountUsdt });
-
-      // Wrap input operations with timeout
-      const inputTimeout = 5000;
+      // Set input with timeout
       const inputResult = await Promise.race([
-        (async () => {
-          // Clear the input
-          this.onLog("debug", "clicking_input", { token });
-          await inputField.click({ clickCount: 3 });
-          this.onLog("debug", "pressing_backspace", { token });
-          await page.keyboard.press("Backspace");
-
-          // Type the value
-          this.onLog("debug", "typing_value", { token, amountUsdt });
-          await inputField.type(amountUsdt.toString(), { delay: 20 });
-
-          // Dispatch React events
-          this.onLog("debug", "dispatching_events", { token });
-          await inputField.evaluate((el, value) => {
-            const input = el as HTMLInputElement;
-
-            // Set value directly
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-              window.HTMLInputElement.prototype,
-              "value"
-            )?.set;
-            if (nativeInputValueSetter) {
-              nativeInputValueSetter.call(input, value);
-            }
-
-            // Dispatch events
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-            input.dispatchEvent(new Event("change", { bubbles: true }));
-            input.blur();
-          }, amountUsdt.toString());
-
-          return "success";
-        })(),
-        new Promise<string>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Input operation timeout")),
-            inputTimeout
-          )
+        this.setInputValue(page, inputField, amountUsdt),
+        new Promise<string>((_, reject) => 
+          setTimeout(() => reject(new Error("Input timeout")), perQuoteTimeout)
         ),
       ]);
 
-      this.onLog("info", "input_value_set", {
-        token,
-        amountUsdt,
-        result: inputResult,
-      });
-      await this.saveScreenshot(page, token, `04-after-input-${amountUsdt}`);
-
-      // Step 4: Wait for output to change (max 5 seconds, no hanging)
-      this.onLog("debug", "waiting_for_output", { token });
-
-      const outputAfter = await this.waitForOutputChange(
-        page,
-        outputBefore,
-        5000
-      );
-
-      if (outputAfter === null) {
-        this.onLog("warn", "output_unchanged", {
-          token,
-          amountUsdt,
-          outputBefore,
-        });
-        await this.saveScreenshot(
-          page,
-          token,
-          `05-output-unchanged-${amountUsdt}`
-        );
-        return this.createInvalidQuote(
-          token,
-          amountUsdt,
-          "timeout",
-          "Output did not change"
-        );
+      if (inputResult !== "success") {
+        return this.createInvalidQuote(token, amountUsdt, "timeout", inputResult, Date.now() - startTime);
       }
 
-      this.onLog("info", "output_changed", {
-        token,
-        outputBefore,
-        outputAfter,
-      });
+      // Wait for output change (max 3s)
+      const { value: outputAfter, raw: outputRaw } = await this.waitForOutputChange(page, outputBefore, 3000);
 
-      // Step 5: Calculate effective price
-      const effectivePrice = amountUsdt / outputAfter;
+      if (outputAfter === null || outputAfter <= 0) {
+        return this.createInvalidQuote(token, amountUsdt, "timeout", "Output unchanged", Date.now() - startTime);
+      }
 
-      // Success
+      // Extract gas estimate
+      const { gasUsdt, gasRaw } = await this.extractGas(page);
+
+      // Calculate prices
+      const scrapeMs = Date.now() - startTime;
+      const price_usdt_per_token = amountUsdt / outputAfter;
+      const price_token_per_usdt = outputAfter / amountUsdt;
+
       this.consecutiveFailures.set(token, 0);
       this.lastSuccessTs = Date.now();
+      this.warmedUp.set(token, true);
 
-      const duration = Date.now() - startTime;
       this.onLog("info", "quote_scraped", {
-        token,
-        amountUsdt,
-        outputAfter,
-        effectivePrice,
-        durationMs: duration,
+        token, amountUsdt, outputAfter,
+        price_usdt_per_token: price_usdt_per_token.toFixed(6),
+        scrapeMs,
       });
 
       return {
@@ -395,103 +303,179 @@ export class UniswapScraper {
         inputToken: "USDT",
         outputToken: token,
         amountInUSDT: amountUsdt,
-        amountOutToken: outputAfter.toFixed(8),
-        effectivePriceUsdtPerToken: effectivePrice,
-        gasEstimateUsdt: 0, // TODO: extract from UI
+        amountInRaw: amountUsdt.toString(),
+        amountOutToken: outputAfter,
+        amountOutRaw: outputRaw || outputAfter.toString(),
+        price_usdt_per_token,
+        price_token_per_usdt,
+        usdt_for_1_token: price_usdt_per_token,
+        gasEstimateUsdt: gasUsdt,
+        gasRaw: gasRaw,
         route: "Uniswap UI",
         ts: Math.floor(Date.now() / 1000),
+        scrapeMs,
         valid: true,
       };
+
     } catch (error) {
-      const duration = Date.now() - startTime;
+      const scrapeMs = Date.now() - startTime;
       const failures = (this.consecutiveFailures.get(token) || 0) + 1;
       this.consecutiveFailures.set(token, failures);
 
       this.onLog("error", "scrape_failed", {
-        token,
-        amountUsdt,
-        durationMs: duration,
+        token, amountUsdt, scrapeMs,
         error: error instanceof Error ? error.message : String(error),
-        consecutiveFailures: failures,
       });
 
-      await this.saveScreenshot(page, token, `error-${amountUsdt}`);
-
       return this.createInvalidQuote(
-        token,
-        amountUsdt,
-        "unknown",
-        error instanceof Error ? error.message : String(error)
+        token, amountUsdt, "unknown",
+        error instanceof Error ? error.message : String(error),
+        scrapeMs
       );
     }
   }
 
   /**
-   * Get current output value from the second decimal input
+   * Set input value with proper React event dispatching
+   */
+  private async setInputValue(page: Page, inputField: any, value: number): Promise<string> {
+    try {
+      await inputField.click({ clickCount: 3 });
+      await page.keyboard.press("Backspace");
+      await inputField.type(value.toString(), { delay: 15 });
+      
+      await inputField.evaluate((el: HTMLInputElement, val: string) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        if (setter) setter.call(el, val);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.blur();
+      }, value.toString());
+      
+      return "success";
+    } catch (error) {
+      return error instanceof Error ? error.message : "input_failed";
+    }
+  }
+
+  /**
+   * Get output value with raw text
    */
   private async getOutputValue(page: Page): Promise<number | null> {
     try {
-      const result = await page.evaluate(() => {
+      return await page.evaluate(() => {
         const inputs = document.querySelectorAll('input[inputmode="decimal"]');
         if (inputs.length >= 2) {
           const output = inputs[1] as HTMLInputElement;
-          const value = output.value.replace(/,/g, "");
-          return value ? parseFloat(value) : null;
+          const raw = output.value.replace(/,/g, "").trim();
+          return raw ? parseFloat(raw) : null;
         }
         return null;
       });
-      return result;
     } catch {
       return null;
     }
   }
 
   /**
-   * Wait for output to change (non-blocking, max timeout)
+   * Wait for output to change with raw value extraction
    */
   private async waitForOutputChange(
     page: Page,
     originalValue: number | null,
     maxWaitMs: number
-  ): Promise<number | null> {
+  ): Promise<{ value: number | null; raw: string | null }> {
     const startTime = Date.now();
-    const checkInterval = 300;
+    const checkInterval = 250;
 
     while (Date.now() - startTime < maxWaitMs) {
-      const currentValue = await this.getOutputValue(page);
+      const result = await page.evaluate(() => {
+        const inputs = document.querySelectorAll('input[inputmode="decimal"]');
+        if (inputs.length >= 2) {
+          const output = inputs[1] as HTMLInputElement;
+          const raw = output.value;
+          const cleaned = raw.replace(/,/g, "").trim();
+          return { raw, value: cleaned ? parseFloat(cleaned) : null };
+        }
+        return { raw: null, value: null };
+      });
 
-      // Check if value changed
-      if (currentValue !== null && currentValue > 0) {
-        if (originalValue === null || currentValue !== originalValue) {
-          this.onLog("debug", "output_container_found", { currentValue });
-          return currentValue;
+      if (result.value !== null && result.value > 0) {
+        if (originalValue === null || result.value !== originalValue) {
+          return result;
         }
       }
 
       await page.waitForTimeout(checkInterval);
     }
 
-    // Timeout - return whatever we have
-    const finalValue = await this.getOutputValue(page);
-    return finalValue !== originalValue ? finalValue : null;
+    return { value: null, raw: null };
+  }
+
+  /**
+   * Extract gas estimate from UI
+   */
+  private async extractGas(page: Page): Promise<{ gasUsdt: number | null; gasRaw: string | null }> {
+    try {
+      const result = await page.evaluate(() => {
+        // Look for gas-related text patterns
+        const gasPatterns = [
+          /\$[\d.,]+\s*gas/i,
+          /gas[:\s]*\$[\d.,]+/i,
+          /network fee[:\s]*\$[\d.,]+/i,
+          /~\$[\d.,]+/,
+        ];
+        
+        const allText = document.body.innerText;
+        
+        for (const pattern of gasPatterns) {
+          const match = allText.match(pattern);
+          if (match) {
+            const numMatch = match[0].match(/[\d.,]+/);
+            if (numMatch) {
+              return {
+                raw: match[0],
+                value: parseFloat(numMatch[0].replace(/,/g, "")),
+              };
+            }
+          }
+        }
+        
+        return { raw: null, value: null };
+      });
+
+      return {
+        gasUsdt: result.value,
+        gasRaw: result.raw,
+      };
+    } catch {
+      return { gasUsdt: null, gasRaw: null };
+    }
   }
 
   private createInvalidQuote(
     token: TokenSymbol,
     amountUsdt: number,
     reason: ScrapeError["type"],
-    message: string
+    message: string,
+    scrapeMs: number
   ): QuoteData {
     return {
       market: `${token}_USDT`,
       inputToken: "USDT",
       outputToken: token,
       amountInUSDT: amountUsdt,
-      amountOutToken: "0",
-      effectivePriceUsdtPerToken: 0,
-      gasEstimateUsdt: 0,
+      amountInRaw: amountUsdt.toString(),
+      amountOutToken: 0,
+      amountOutRaw: "0",
+      price_usdt_per_token: 0,
+      price_token_per_usdt: 0,
+      usdt_for_1_token: 0,
+      gasEstimateUsdt: null,
+      gasRaw: null,
       route: "none",
       ts: Math.floor(Date.now() / 1000),
+      scrapeMs,
       valid: false,
       reason: `${reason}: ${message}`,
     };
@@ -501,10 +485,8 @@ export class UniswapScraper {
     this.onLog("warn", "browser_restarting");
     try {
       await this.close();
-    } catch {
-      // Ignore
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    } catch { /* ignore */ }
+    await new Promise(r => setTimeout(r, 2000));
     await this.initialize();
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
@@ -520,7 +502,7 @@ export class UniswapScraper {
 
   getErrorsLast5m(): number {
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-    return this.recentErrors.filter((e) => e.timestamp > fiveMinAgo).length;
+    return this.recentErrors.filter(e => e.timestamp > fiveMinAgo).length;
   }
 
   getLastSuccessTs(): number | null {
