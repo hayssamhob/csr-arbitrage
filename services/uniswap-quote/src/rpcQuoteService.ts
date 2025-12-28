@@ -133,6 +133,12 @@ export class RpcQuoteService {
       return v2Quote;
     }
 
+    // All RPC methods failed - try scraper fallback
+    const scraperResult = await this.tryScraperFallback(token, amountUsdt, slippageBps);
+    if (scraperResult && !scraperResult.error) {
+      return scraperResult;
+    }
+
     // All methods failed
     return {
       amountIn: amountUsdt.toString(),
@@ -150,6 +156,62 @@ export class RpcQuoteService {
       source: "rpc_failed",
       error: "No liquidity found in V2 or V3 pools",
     };
+  }
+
+  /**
+   * Try to get price from the Puppeteer scraper service
+   */
+  private async tryScraperFallback(
+    token: "CSR" | "CSR25",
+    amountUsdt: number,
+    slippageBps: number
+  ): Promise<QuoteResult | null> {
+    try {
+      const scraperUrl = process.env.SCRAPER_URL || "http://localhost:3010";
+      const response = await fetch(`${scraperUrl}/price/${token}`);
+      
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      
+      if (data.isStale || data.error || data.price <= 0) {
+        this.onLog("warn", "scraper_data_stale", { token, data });
+        return null;
+      }
+
+      // Calculate amounts based on scraped price
+      const tokensOut = amountUsdt / data.price;
+      const minAmountOut = tokensOut * (1 - slippageBps / 10000);
+
+      this.onLog("info", "scraper_quote_success", {
+        token,
+        price: data.price,
+        source: data.source,
+      });
+
+      return {
+        amountIn: amountUsdt.toString(),
+        amountInUnit: "USDT",
+        amountOut: tokensOut.toFixed(6),
+        amountOutUnit: token,
+        effectivePrice: data.price,
+        estimatedGas: 150000,
+        gasCostUsd: data.gasUsd || 0.02,
+        gasCostEth: ((data.gasUsd || 0.02) / this.ethPriceUsd).toFixed(6),
+        minAmountOut: minAmountOut.toFixed(6),
+        slippageBps,
+        priceImpactPercent: data.priceImpact || -0.34,
+        route: data.route || "Uniswap UI",
+        source: "ui_scrape", // Clearly labeled
+      };
+    } catch (error) {
+      this.onLog("debug", "scraper_fallback_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /**
