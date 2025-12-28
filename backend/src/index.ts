@@ -776,8 +776,8 @@ app.get("/api/alignment/:market", async (req, res) => {
     for (const quote of validQuotes) {
       const quoteAge = now / 1000 - quote.ts;
 
-      // Skip stale quotes (> 60s)
-      if (quoteAge > 60) {
+      // Skip stale quotes (> 120s to allow for scraper cycle time ~2min)
+      if (quoteAge > DEX_STALE_SEC) {
         continue;
       }
 
@@ -984,8 +984,8 @@ app.get("/api/alignment/debug/:market", async (req, res) => {
       };
 
       // Check skip reasons
-      if (quoteAge > 60) {
-        analysis.skipped = "stale (> 60s)";
+      if (quoteAge > DEX_STALE_SEC) {
+        analysis.skipped = `stale (> ${DEX_STALE_SEC}s)`;
       } else if (impactPct > maxImpactCap) {
         analysis.skipped = `impact ${impactPct.toFixed(
           1
