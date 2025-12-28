@@ -219,7 +219,9 @@ export function PriceAlignmentCard({
             <div className="bg-slate-900/50 rounded-lg p-3">
               <div className="text-xs text-slate-500 mb-1">Gas Cost</div>
               <div className="font-mono text-slate-300">
-                ~${alignment.gasCostUsdt.toFixed(2)}
+                {alignment.gasCostUsdt !== null
+                  ? `~$${alignment.gasCostUsdt.toFixed(2)}`
+                  : "—"}
               </div>
             </div>
             <div className="bg-slate-900/50 rounded-lg p-3">
