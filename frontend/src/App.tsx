@@ -730,6 +730,23 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch data immediately on mount for instant loading
+  useEffect(() => {
+    async function fetchInitialData() {
+      try {
+        const resp = await fetch(`${API_URL}/api/dashboard`);
+        if (resp.ok) {
+          const initialData = await resp.json();
+          setData(initialData);
+          setLastUpdate(new Date());
+        }
+      } catch {
+        console.error("Failed to fetch initial data");
+      }
+    }
+    fetchInitialData();
+  }, []);
+
   useEffect(() => {
     let ws: WebSocket | null = null;
 
