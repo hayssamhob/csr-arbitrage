@@ -61,13 +61,6 @@ function formatPrice(price: number | null): string {
   return price.toFixed(2);
 }
 
-function formatTokens(tokens: number | null): string {
-  if (tokens === null) return "—";
-  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(2)}M`;
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
-  return tokens.toFixed(0);
-}
-
 export function AlignmentDisplay({
   token,
   alignment,
