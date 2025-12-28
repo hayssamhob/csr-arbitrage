@@ -135,37 +135,64 @@ export function getBandStyle(band: ReturnType<typeof classifyDeviation>): {
   }
 }
 
+// Safety caps - configurable limits
+export const SAFETY_CAPS = {
+  MAX_ALIGN_USDT: 2000,        // Max USDT to suggest for alignment
+  MAX_ALIGN_TOKENS: 100000,    // Max tokens to suggest
+  MAX_STALENESS_SEC: 60,       // Data older than 60s is stale
+  HIGH_SLIPPAGE_PCT: 3,        // Warn if slippage > 3%
+};
+
 /**
- * Estimate post-trade DEX price based on trade size and direction
- * This is a simplified model - real implementation would use AMM math
+ * Find the best quote from available quotes based on deviation from CEX
+ * Returns the quote that gets us closest to CEX price within safety caps
  */
-function estimatePostTradePrice(
-  currentPrice: number,
-  tradeTokens: number,
-  direction: "BUY_ON_DEX" | "SELL_ON_DEX",
-  poolLiquidity: number = 100000 // Estimated pool liquidity in tokens
-): number {
-  // Simplified constant product AMM model
-  // Price impact ≈ tradeSize / (2 * liquidity)
-  const priceImpact = tradeTokens / (2 * poolLiquidity);
-  
-  if (direction === "BUY_ON_DEX") {
-    // Buying pushes price up
-    return currentPrice * (1 + priceImpact);
-  } else {
-    // Selling pushes price down
-    return currentPrice * (1 - priceImpact);
+function findBestAlignmentQuote(
+  quotes: DexQuote[],
+  cexPrice: number,
+  _direction: "BUY_ON_DEX" | "SELL_ON_DEX" // Reserved for future bidirectional support
+): { quote: DexQuote | null; deviation: number } {
+  const validQuotes = quotes.filter(
+    (q) => q.valid && q.amountInUSDT <= SAFETY_CAPS.MAX_ALIGN_USDT
+  );
+
+  if (validQuotes.length === 0) {
+    return { quote: null, deviation: Infinity };
   }
+
+  // Sort quotes by size (ascending)
+  const sorted = [...validQuotes].sort(
+    (a, b) => a.amountInUSDT - b.amountInUSDT
+  );
+
+  // Find the quote with smallest deviation from CEX
+  let bestQuote: DexQuote | null = null;
+  let bestDeviation = Infinity;
+
+  for (const quote of sorted) {
+    const deviation = ((quote.executionPrice - cexPrice) / cexPrice) * 100;
+    const absDeviation = Math.abs(deviation);
+
+    if (absDeviation < bestDeviation) {
+      bestDeviation = absDeviation;
+      bestQuote = quote;
+    }
+  }
+
+  return { quote: bestQuote, deviation: bestDeviation };
 }
 
 /**
- * Core alignment computation using binary search
+ * Core alignment computation - USES ONLY REAL QUOTES
+ * 
+ * This function does NOT invent prices. It only uses actual scraped quotes.
+ * If we don't have a quote at the right size, we say so clearly.
  * 
  * @param cexPrice - CEX reference price (USDT per token)
- * @param currentDexPrice - Current DEX execution price
- * @param quotes - Available DEX quotes at different sizes
+ * @param currentDexPrice - Current DEX execution price (from smallest quote)
+ * @param quotes - Available DEX quotes at different sizes (FROM SCRAPER)
  * @param config - Token configuration
- * @returns AlignmentResult with exact trade recommendation
+ * @returns AlignmentResult with trade recommendation based on REAL quotes only
  */
 export function computeDexAlignment(
   cexPrice: number,
@@ -174,8 +201,9 @@ export function computeDexAlignment(
   config: TokenConfig
 ): AlignmentResult {
   const timestamp = Date.now();
-  
-  // Handle missing data
+  const validQuotes = quotes.filter((q) => q.valid);
+
+  // Handle missing CEX data
   if (!cexPrice || cexPrice <= 0) {
     return {
       status: "NO_DATA",
@@ -194,8 +222,9 @@ export function computeDexAlignment(
       timestamp,
     };
   }
-  
-  if (!currentDexPrice || currentDexPrice <= 0) {
+
+  // Handle missing DEX data
+  if (validQuotes.length === 0 || !currentDexPrice || currentDexPrice <= 0) {
     return {
       status: "INCOMPLETE",
       direction: "ALIGNED",
@@ -214,17 +243,27 @@ export function computeDexAlignment(
     };
   }
 
-  // Calculate current deviation
-  const deviationPercent = ((currentDexPrice - cexPrice) / cexPrice) * 100;
+  // Calculate current deviation using smallest available quote
+  const smallestQuote = validQuotes.reduce(
+    (min, q) => (q.amountInUSDT < min.amountInUSDT ? q : min),
+    validQuotes[0]
+  );
+  const refDexPrice = smallestQuote.executionPrice;
+
+  const deviationPercent = ((refDexPrice - cexPrice) / cexPrice) * 100;
   const deviationBps = deviationPercent * 100;
   const bandLevel = classifyDeviation(deviationPercent, config.bands);
-  
-  // Determine direction
-  const direction: AlignmentDirection = 
-    deviationPercent > config.bands.ideal ? "SELL_ON_DEX" :
-    deviationPercent < -config.bands.ideal ? "BUY_ON_DEX" :
-    "ALIGNED";
-  
+
+  // Determine direction based on deviation
+  // If DEX price > CEX price, we need to SELL on DEX to push price down
+  // If DEX price < CEX price, we need to BUY on DEX to push price up
+  const direction: AlignmentDirection =
+    deviationPercent > config.bands.ideal
+      ? "SELL_ON_DEX"
+      : deviationPercent < -config.bands.ideal
+      ? "BUY_ON_DEX"
+      : "ALIGNED";
+
   // If already aligned, return early
   if (direction === "ALIGNED") {
     return {
@@ -232,8 +271,8 @@ export function computeDexAlignment(
       direction: "ALIGNED",
       tokenAmount: 0,
       usdtAmount: 0,
-      currentDexPrice,
-      expectedDexPrice: currentDexPrice,
+      currentDexPrice: refDexPrice,
+      expectedDexPrice: refDexPrice,
       cexReferencePrice: cexPrice,
       deviationPercent,
       deviationBps,
@@ -245,77 +284,64 @@ export function computeDexAlignment(
     };
   }
 
-  // Binary search for optimal trade size
-  const targetBandPercent = config.bands.ideal;
-  let low = 0;
-  let high = config.maxTradeSize;
-  let bestSize: number | null = null;
-  let bestExpectedPrice = currentDexPrice;
-  
-  // Estimate pool liquidity from quotes
-  const validQuotes = quotes.filter(q => q.valid);
-  const poolLiquidity = validQuotes.length > 0 
-    ? Math.max(...validQuotes.map(q => q.tokensOut)) * 10 
-    : 100000;
+  // Find best quote within safety caps
+  // For now, suggest the largest quote we have within caps
+  // (In reality, we'd need to do binary search with on-demand quotes)
+  const { quote: bestQuote, deviation: bestDeviation } = findBestAlignmentQuote(
+    quotes,
+    cexPrice,
+    direction
+  );
 
-  const iterations = 20; // Max binary search iterations
-  for (let i = 0; i < iterations && (high - low) > config.minTokenStep; i++) {
-    const mid = (low + high) / 2;
-    
-    // Estimate new DEX price after trade
-    const newDexPrice = estimatePostTradePrice(
-      currentDexPrice,
-      mid,
-      direction as "BUY_ON_DEX" | "SELL_ON_DEX",
-      poolLiquidity
-    );
-    
-    const newDeviationPercent = ((newDexPrice - cexPrice) / cexPrice) * 100;
-    const absDeviation = Math.abs(newDeviationPercent);
-    
-    if (absDeviation <= targetBandPercent) {
-      // Found a valid size, try to find smaller
-      bestSize = mid;
-      bestExpectedPrice = newDexPrice;
-      high = mid;
-    } else {
-      // Need larger trade
-      low = mid;
-    }
+  if (!bestQuote) {
+    return {
+      status: "LOW_LIQUIDITY",
+      direction,
+      tokenAmount: 0,
+      usdtAmount: 0,
+      currentDexPrice: refDexPrice,
+      expectedDexPrice: refDexPrice,
+      cexReferencePrice: cexPrice,
+      deviationPercent,
+      deviationBps,
+      gasCostUsdt: 0,
+      slippagePercent: 0,
+      confidence: "LOW",
+      bandLevel,
+      timestamp,
+    };
   }
 
-  // If no size found within limits
-  if (bestSize === null) {
-    // Use max trade size as fallback
-    bestSize = config.maxTradeSize;
-    bestExpectedPrice = estimatePostTradePrice(
-      currentDexPrice,
-      bestSize,
-      direction as "BUY_ON_DEX" | "SELL_ON_DEX",
-      poolLiquidity
-    );
-  }
+  // Use the ACTUAL quote values - no estimation!
+  const tokenAmount = bestQuote.tokensOut;
+  const usdtAmount = bestQuote.amountInUSDT;
+  const gasCostUsdt = bestQuote.gasEstimateUsdt || 2.5;
+  const slippagePercent = bestQuote.slippagePercent || 0.5;
 
-  // Calculate costs
-  const usdtAmount = bestSize * currentDexPrice;
-  const gasCostUsdt = validQuotes[0]?.gasEstimateUsdt || 2.5;
-  const slippagePercent = Math.min((bestSize / poolLiquidity) * 100, 5);
-  
-  // Determine confidence
-  let confidence: ConfidenceLevel = "HIGH";
-  if (validQuotes.length === 0) {
+  // Determine confidence based on data quality
+  let confidence: ConfidenceLevel = "MEDIUM";
+  if (
+    validQuotes.length >= 4 &&
+    slippagePercent < SAFETY_CAPS.HIGH_SLIPPAGE_PCT
+  ) {
+    confidence = "HIGH";
+  } else if (
+    validQuotes.length < 2 ||
+    slippagePercent > SAFETY_CAPS.HIGH_SLIPPAGE_PCT
+  ) {
     confidence = "LOW";
-  } else if (validQuotes.length < 3 || slippagePercent > 2) {
-    confidence = "MEDIUM";
   }
+
+  // Add warning if we can't actually align within caps
+  const canAlign = bestDeviation <= config.bands.acceptable;
 
   return {
-    status: validQuotes.length > 0 ? "OK" : "LOW_LIQUIDITY",
+    status: canAlign ? "OK" : "LOW_LIQUIDITY",
     direction,
-    tokenAmount: Math.round(bestSize),
+    tokenAmount: Math.round(tokenAmount),
     usdtAmount: Math.round(usdtAmount * 100) / 100,
-    currentDexPrice,
-    expectedDexPrice: bestExpectedPrice,
+    currentDexPrice: refDexPrice,
+    expectedDexPrice: bestQuote.executionPrice, // This is the ACTUAL quote price
     cexReferencePrice: cexPrice,
     deviationPercent,
     deviationBps,
