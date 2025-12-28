@@ -727,21 +727,22 @@ app.get("/api/alignment/:market", async (req, res) => {
       return res.json(result);
     }
 
-    // 3. Sort quotes by size (small to large)
+    // 3. Sort quotes by size (small to large) - CRITICAL for finding smallest sufficient
     validQuotes.sort((a: any, b: any) => a.amountInUSDT - b.amountInUSDT);
 
-    // 4. Get smallest quote as reference DEX price (spot price)
+    // 4. Get smallest valid quote as baseline DEX price (P0)
     const smallestQuote = validQuotes[0];
-    const spotPrice = smallestQuote.price_usdt_per_token;
+    const spotPrice = smallestQuote.price_usdt_per_token; // P0
     result.dex_exec_price = spotPrice;
     result.dex_quote_size_usdt = smallestQuote.amountInUSDT;
 
-    // 5. Calculate current gap from CEX (deviation)
+    // 5. Calculate gap: gap_pct = (P0 - P_cex) / P_cex
+    // Positive = DEX higher than CEX, Negative = DEX lower than CEX
     const gapPct = ((spotPrice - cexMid) / cexMid) * 100;
     result.deviation_pct = Math.round(gapPct * 100) / 100;
     const bandPct = bandBps / 100;
 
-    // 6. Check if already aligned
+    // 6. Check if already aligned (within band)
     if (Math.abs(gapPct) <= bandPct) {
       result.status = "ALIGNED";
       result.direction = "NONE";
@@ -750,9 +751,10 @@ app.get("/api/alignment/:market", async (req, res) => {
       return res.json(result);
     }
 
-    // 7. Determine direction
-    if (spotPrice > cexMid) {
-      // DEX expensive -> SELL needed (not implemented yet)
+    // 7. Determine direction based on gap
+    // gap_pct > band_pct => DEX expensive => need SELL on DEX (push price down)
+    // gap_pct < -band_pct => DEX cheap => need BUY on DEX (push price up)
+    if (gapPct > bandPct) {
       result.direction = "SELL";
       result.status = "SELL_ON_DEX";
       result.reason = "sell_quoting_not_implemented_yet";
@@ -763,79 +765,87 @@ app.get("/api/alignment/:market", async (req, res) => {
     result.direction = "BUY";
     result.status = "BUY_ON_DEX";
 
-    // 8. IMPACT-DRIVEN approach: find smallest size where price_impact >= gap
-    // The price impact of a trade approximately equals how much the price will move
-    // We need impact >= |gap| - band to close the gap
-    const neededMovePct = Math.abs(gapPct) - bandPct;
+    // 8. CORRECT ALGORITHM: Find SMALLEST quote where impact >= needed_move
+    // need_move_pct = max(0, |gap_pct| - band_pct)
+    const neededMovePct = Math.max(0, Math.abs(gapPct) - bandPct);
 
     let selectedQuote: any = null;
-    let gasWarning = false;
+    let selectionReason = "";
 
+    // Iterate through quotes from SMALLEST to LARGEST
     for (const quote of validQuotes) {
-      // Calculate price impact for this quote (vs spot)
-      const impactPct =
-        ((quote.price_usdt_per_token - spotPrice) / spotPrice) * 100;
+      const quoteAge = now / 1000 - quote.ts;
 
-      // Check if this impact is sufficient to close the gap
+      // Skip stale quotes (> 60s)
+      if (quoteAge > 60) {
+        continue;
+      }
+
+      // Calculate price impact for this quote relative to spot
+      const impactPct = Math.abs(
+        ((quote.price_usdt_per_token - spotPrice) / spotPrice) * 100
+      );
+
+      // Skip if impact exceeds max cap
+      if (impactPct > maxImpactCap) {
+        continue;
+      }
+
+      // Check gas acceptability (if gas available)
+      if (quote.gasEstimateUsdt !== null) {
+        const gasBps = (quote.gasEstimateUsdt / quote.amountInUSDT) * 10000;
+        if (gasBps > maxGasBps) {
+          continue; // Gas too high for this size
+        }
+      }
+
+      // Check if this quote's impact is sufficient to close the gap
       if (impactPct >= neededMovePct) {
         selectedQuote = quote;
-
-        // Check gas gating
-        const gasBps = quote.gasEstimateUsdt
-          ? (quote.gasEstimateUsdt / quote.amountInUSDT) * 10000
-          : 0;
-        if (gasBps > maxGasBps) {
-          gasWarning = true;
-        }
-        break;
+        selectionReason = `impact ${impactPct.toFixed(
+          2
+        )}% >= need ${neededMovePct.toFixed(2)}%`;
+        break; // STOP at first (smallest) sufficient quote
       }
     }
 
-    // If no quote has enough impact, use the largest available
+    // NO FALLBACK TO LARGEST - if nothing matches, return null
     if (!selectedQuote) {
-      selectedQuote = validQuotes[validQuotes.length - 1];
-      result.reason = `largest_available: impact may be insufficient`;
-      result.confidence = "LOW";
-    } else {
-      result.confidence = validQuotes.length >= 3 ? "HIGH" : "MEDIUM";
+      result.required_usdt = null;
+      result.required_tokens = null;
+      result.expected_exec_price = null;
+      result.price_impact_pct = null;
+      result.network_cost_usd = null;
+      result.confidence = "NONE";
+      result.reason = `no_safe_size: need ${neededMovePct.toFixed(
+        2
+      )}% move, max_impact_cap=${maxImpactCap}%, ladder may be insufficient`;
+      return res.json(result);
     }
 
-    // Populate result
+    // Populate result with selected quote
     result.required_usdt = selectedQuote.amountInUSDT;
     result.required_tokens = selectedQuote.amountOutToken;
     result.expected_exec_price = selectedQuote.price_usdt_per_token;
 
-    const impactPct =
-      ((selectedQuote.price_usdt_per_token - spotPrice) / spotPrice) * 100;
-    result.price_impact_pct = Math.round(impactPct * 100) / 100;
+    const selectedImpactPct = Math.abs(
+      ((selectedQuote.price_usdt_per_token - spotPrice) / spotPrice) * 100
+    );
+    result.price_impact_pct = Math.round(selectedImpactPct * 100) / 100;
 
-    // Find gas from any quote (gas is same for all trades at a given moment)
-    const gasQuote = validQuotes.find((q: any) => q.gasEstimateUsdt != null);
-    result.network_cost_usd =
-      gasQuote?.gasEstimateUsdt || selectedQuote.gasEstimateUsdt || null;
+    // Gas from selected quote only - do NOT invent or pull from other quotes
+    result.network_cost_usd = selectedQuote.gasEstimateUsdt ?? null;
 
-    // Build reason string
-    if (gasWarning) {
-      result.status = "BUY_ON_DEX";
-      result.reason = `⚠️ GAS_HIGH: $${selectedQuote.amountInUSDT} → ${
-        selectedQuote.amountOutToken?.toFixed(2) || "?"
-      } tokens, impact ${impactPct.toFixed(2)}%`;
-    } else if (impactPct >= neededMovePct) {
-      result.reason = `$${selectedQuote.amountInUSDT} → ${
-        selectedQuote.amountOutToken?.toFixed(2) || "?"
-      } tokens, impact ${impactPct.toFixed(2)}% (need ${neededMovePct.toFixed(
-        2
-      )}%)`;
-    } else {
-      result.reason = `best: $${
-        selectedQuote.amountInUSDT
-      }, impact ${impactPct.toFixed(2)}% < needed ${neededMovePct.toFixed(2)}%`;
-    }
+    // Confidence based on data quality
+    result.confidence =
+      validQuotes.length >= 5
+        ? "HIGH"
+        : validQuotes.length >= 3
+        ? "MEDIUM"
+        : "LOW";
 
-    // Warn if impact is very high
-    if (impactPct > maxImpactCap) {
-      result.reason = `⚠️ HIGH_IMPACT: ${result.reason}`;
-    }
+    // Build reason string showing WHY this size was chosen
+    result.reason = `$${selectedQuote.amountInUSDT}: ${selectionReason}`;
 
     return res.json(result);
   } catch (error: any) {
@@ -858,6 +868,153 @@ app.get("/api/alignment", async (req, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// DEBUG endpoint - shows full computation details
+app.get("/api/alignment/debug/:market", async (req, res) => {
+  const market = req.params.market.toLowerCase();
+  if (market !== "csr_usdt" && market !== "csr25_usdt") {
+    return res.status(400).json({ error: "Invalid market" });
+  }
+
+  const bandBps = ALIGNMENT_BANDS[market];
+  const maxImpactCap = MAX_IMPACT_CAPS[market];
+  const maxGasBps = MAX_GAS_BPS[market];
+  const bandPct = bandBps / 100;
+  const now = Date.now();
+
+  const debug: any = {
+    market,
+    config: { bandBps, bandPct, maxImpactCap, maxGasBps },
+    cex: { mid: null, source: null, age_sec: null },
+    dex: { spot_price: null, source_size: null },
+    computed: { gap_pct: null, need_move_pct: null, direction: null },
+    ladder_analysis: [],
+    selection: { chosen_size: null, reason: null, fallback_used: false },
+  };
+
+  try {
+    // Get CEX price
+    let cexMid: number | null = null;
+    let cexTs: string | null = null;
+
+    if (market === "csr_usdt") {
+      const latoken = dashboardData.market_state?.csr_usdt?.latoken_ticker;
+      if (latoken?.bid && latoken?.ask) {
+        cexMid = (latoken.bid + latoken.ask) / 2;
+        cexTs = latoken.ts;
+        debug.cex.source = "latoken";
+      }
+    } else {
+      const lbank = dashboardData.market_state?.csr25_usdt?.lbank_ticker;
+      if (lbank?.bid && lbank?.ask) {
+        cexMid = (lbank.bid + lbank.ask) / 2;
+        cexTs = lbank.ts;
+        debug.cex.source = "lbank";
+      }
+    }
+
+    debug.cex.mid = cexMid;
+    if (cexTs) {
+      debug.cex.age_sec = Math.round((now - new Date(cexTs).getTime()) / 1000);
+    }
+
+    if (!cexMid) {
+      debug.selection.reason = "cex_data_missing";
+      return res.json(debug);
+    }
+
+    // Get DEX quotes
+    const token = market === "csr_usdt" ? "CSR" : "CSR25";
+    let scraperQuotes: any[] = [];
+    try {
+      const scraperResp = await axios.get(
+        `${UNISWAP_SCRAPER_URL}/quotes/${token}`,
+        { timeout: 5000 }
+      );
+      scraperQuotes = scraperResp.data?.quotes || [];
+    } catch {
+      debug.selection.reason = "scraper_unavailable";
+      return res.json(debug);
+    }
+
+    const validQuotes = scraperQuotes
+      .filter((q: any) => q.valid && q.price_usdt_per_token > 0)
+      .sort((a: any, b: any) => a.amountInUSDT - b.amountInUSDT);
+
+    if (validQuotes.length === 0) {
+      debug.selection.reason = "no_valid_quotes";
+      return res.json(debug);
+    }
+
+    // Compute baseline
+    const spotPrice = validQuotes[0].price_usdt_per_token;
+    debug.dex.spot_price = spotPrice;
+    debug.dex.source_size = validQuotes[0].amountInUSDT;
+
+    const gapPct = ((spotPrice - cexMid) / cexMid) * 100;
+    const neededMovePct = Math.max(0, Math.abs(gapPct) - bandPct);
+
+    debug.computed.gap_pct = Math.round(gapPct * 100) / 100;
+    debug.computed.need_move_pct = Math.round(neededMovePct * 100) / 100;
+    debug.computed.direction =
+      gapPct > bandPct ? "SELL" : gapPct < -bandPct ? "BUY" : "ALIGNED";
+
+    // Analyze each ladder quote
+    let selectedQuote: any = null;
+    for (const quote of validQuotes) {
+      const quoteAge = now / 1000 - quote.ts;
+      const impactPct = Math.abs(
+        ((quote.price_usdt_per_token - spotPrice) / spotPrice) * 100
+      );
+      const gasBps = quote.gasEstimateUsdt
+        ? (quote.gasEstimateUsdt / quote.amountInUSDT) * 10000
+        : null;
+
+      const analysis: any = {
+        usdt: quote.amountInUSDT,
+        exec_price: quote.price_usdt_per_token,
+        impact_pct: Math.round(impactPct * 100) / 100,
+        gas_usdt: quote.gasEstimateUsdt,
+        gas_bps: gasBps ? Math.round(gasBps) : null,
+        age_sec: Math.round(quoteAge),
+        skipped: null,
+        sufficient: impactPct >= neededMovePct,
+      };
+
+      // Check skip reasons
+      if (quoteAge > 60) {
+        analysis.skipped = "stale (> 60s)";
+      } else if (impactPct > maxImpactCap) {
+        analysis.skipped = `impact ${impactPct.toFixed(
+          1
+        )}% > cap ${maxImpactCap}%`;
+      } else if (gasBps && gasBps > maxGasBps) {
+        analysis.skipped = `gas ${gasBps}bps > cap ${maxGasBps}bps`;
+      } else if (!selectedQuote && impactPct >= neededMovePct) {
+        analysis.skipped = null;
+        analysis.chosen = true;
+        selectedQuote = quote;
+        debug.selection.chosen_size = quote.amountInUSDT;
+        debug.selection.reason = `impact ${impactPct.toFixed(
+          2
+        )}% >= need ${neededMovePct.toFixed(2)}%`;
+      }
+
+      debug.ladder_analysis.push(analysis);
+    }
+
+    if (!selectedQuote) {
+      debug.selection.chosen_size = null;
+      debug.selection.reason = `no_safe_size: all quotes either stale, impact > ${maxImpactCap}%, or insufficient impact`;
+      debug.selection.fallback_used = false;
+    }
+
+    return res.json(debug);
+  } catch (error: any) {
+    debug.selection.reason = `error: ${error.message}`;
+    return res.json(debug);
   }
 });
 

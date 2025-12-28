@@ -283,79 +283,114 @@ export function AlignmentDisplay({
       {/* RECOMMENDED TRADE - From Backend */}
       <div
         className={`p-5 rounded-xl border-2 ${
-          isBuy
-            ? "bg-emerald-500/10 border-emerald-500/30"
-            : "bg-red-500/10 border-red-500/30"
+          alignment.required_usdt
+            ? isBuy
+              ? "bg-emerald-500/10 border-emerald-500/30"
+              : "bg-red-500/10 border-red-500/30"
+            : "bg-yellow-500/10 border-yellow-500/30"
         }`}
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">⚡</span>
+            <span className="text-2xl">
+              {alignment.required_usdt ? "⚡" : "⚠️"}
+            </span>
             <span className="text-lg font-bold text-white">
-              Recommended Trade
+              {alignment.required_usdt
+                ? "Recommended Trade"
+                : "No Safe Size Found"}
             </span>
           </div>
         </div>
 
-        {/* Recommended Amount to close gap */}
-        <div className="bg-slate-900/70 rounded-xl p-4 mb-4">
-          <div className="text-xs text-slate-400 mb-2">
-            Amount to close CEX/DEX gap
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-mono font-bold text-white">
-              ${alignment.required_usdt?.toLocaleString() || "—"}
-            </span>
-            <span className="text-sm text-slate-400">USDT</span>
-          </div>
-          <div className="text-xs text-slate-500 mt-2">
-            Impact: {alignment.price_impact_pct?.toFixed(2) || "—"}% | Gas:{" "}
-            {alignment.network_cost_usd !== null
-              ? `$${alignment.network_cost_usd.toFixed(2)}`
-              : "—"}
-          </div>
-        </div>
+        {alignment.required_usdt ? (
+          <>
+            {/* Recommended Amount */}
+            <div className="bg-slate-900/70 rounded-xl p-4 mb-4">
+              <div className="text-xs text-slate-400 mb-2">
+                Smallest sufficient size
+              </div>
+              <div className="flex items-baseline gap-3">
+                <span className="text-3xl font-mono font-bold text-white">
+                  ${alignment.required_usdt.toLocaleString()}
+                </span>
+                <span className="text-sm text-slate-400">USDT</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div className="bg-slate-800/50 rounded p-2">
+                  <span className="text-slate-500">Impact:</span>
+                  <span className="text-white ml-1">
+                    {alignment.price_impact_pct?.toFixed(2) || "—"}%
+                  </span>
+                </div>
+                <div className="bg-slate-800/50 rounded p-2">
+                  <span className="text-slate-500">Gas:</span>
+                  <span className="text-white ml-1">
+                    {alignment.network_cost_usd !== null
+                      ? `$${alignment.network_cost_usd.toFixed(2)}`
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-        {/* Confidence & Single Action Button */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs">
-            <span
-              className={`px-2 py-1 rounded ${
-                alignment.confidence === "HIGH"
-                  ? "bg-emerald-500/20 text-emerald-400"
-                  : alignment.confidence === "MEDIUM"
-                  ? "bg-yellow-500/20 text-yellow-400"
-                  : "bg-red-500/20 text-red-400"
-              }`}
-            >
-              {alignment.confidence} CONFIDENCE
-            </span>
-            <span className="text-slate-500">
-              {alignment.quotes_valid} quotes
-            </span>
-          </div>
+            {/* Selection reason */}
+            <div className="text-xs text-slate-400 mb-4 font-mono bg-slate-900/50 rounded p-2">
+              ✓ {alignment.reason}
+            </div>
 
-          {executionMode === "MANUAL" &&
-            onExecute &&
-            alignment.required_usdt && (
-              <button
-                onClick={() =>
-                  onExecute(
-                    token,
-                    alignment.direction,
-                    alignment.required_usdt!
-                  )
-                }
-                className={`px-6 py-3 rounded-lg font-bold text-white transition-all hover:scale-105 ${
-                  isBuy
-                    ? "bg-emerald-600 hover:bg-emerald-500"
-                    : "bg-red-600 hover:bg-red-500"
-                }`}
-              >
-                {isBuy ? "BUY" : "SELL"} on Uniswap →
-              </button>
-            )}
-        </div>
+            {/* Action Button */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs">
+                <span
+                  className={`px-2 py-1 rounded ${
+                    alignment.confidence === "HIGH"
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : alignment.confidence === "MEDIUM"
+                      ? "bg-yellow-500/20 text-yellow-400"
+                      : "bg-red-500/20 text-red-400"
+                  }`}
+                >
+                  {alignment.confidence}
+                </span>
+                <span className="text-slate-500">
+                  {alignment.quotes_valid} quotes
+                </span>
+              </div>
+
+              {executionMode === "MANUAL" && onExecute && (
+                <button
+                  onClick={() =>
+                    onExecute(
+                      token,
+                      alignment.direction,
+                      alignment.required_usdt!
+                    )
+                  }
+                  className={`px-6 py-3 rounded-lg font-bold text-white transition-all hover:scale-105 ${
+                    isBuy
+                      ? "bg-emerald-600 hover:bg-emerald-500"
+                      : "bg-red-600 hover:bg-red-500"
+                  }`}
+                >
+                  {isBuy ? "BUY" : "SELL"} on Uniswap →
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="bg-yellow-900/20 rounded-xl p-4">
+            <div className="text-yellow-400 text-sm mb-2">
+              No trade size meets all criteria:
+            </div>
+            <div className="text-xs text-slate-400 font-mono">
+              {alignment.reason || "Check ladder for details"}
+            </div>
+            <div className="text-xs text-slate-500 mt-2">
+              Try smaller band, add liquidity, or wait for better conditions
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Reason */}
