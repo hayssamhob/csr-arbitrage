@@ -282,12 +282,7 @@ export function PriceAlignmentCard({
 
       {/* Quote Ladder - Show actual prices at different sizes */}
       <div className="mt-6">
-        <QuoteLadder
-          token={token}
-          quotes={dexQuotes}
-          cexPrice={cexPrice}
-          direction={alignment.direction === "SELL_ON_DEX" ? "SELL" : "BUY"}
-        />
+        <QuoteLadder token={token} />
       </div>
 
       {/* Status Bar */}

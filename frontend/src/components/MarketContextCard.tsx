@@ -9,6 +9,30 @@
 import { useState } from "react";
 import { formatPrice } from "../lib/alignmentEngine";
 
+// Trading links for each token
+const TRADING_LINKS = {
+  CSR: {
+    cex: {
+      name: "LATOKEN",
+      url: "https://latoken.com/exchange/CSR_USDT",
+    },
+    dex: {
+      name: "Uniswap",
+      url: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
+    },
+  },
+  CSR25: {
+    cex: {
+      name: "LBank",
+      url: "https://www.lbank.com/trade/csr25_usdt",
+    },
+    dex: {
+      name: "Uniswap",
+      url: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982",
+    },
+  },
+};
+
 interface CexData {
   bid: number;
   ask: number;
@@ -78,9 +102,14 @@ export function MarketContextCard({
             <div className="bg-slate-900/50 rounded-lg p-3">
               <div className="text-xs text-slate-500 mb-2 flex items-center justify-between">
                 <span>CEX Snapshot</span>
-                {cexData && (
-                  <span className="text-emerald-400">{cexData.source}</span>
-                )}
+                <a
+                  href={TRADING_LINKS[token].cex.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-400 hover:text-emerald-300 hover:underline"
+                >
+                  {TRADING_LINKS[token].cex.name} ↗
+                </a>
               </div>
 
               {cexData ? (
@@ -124,9 +153,14 @@ export function MarketContextCard({
             <div className="bg-slate-900/50 rounded-lg p-3">
               <div className="text-xs text-slate-500 mb-2 flex items-center justify-between">
                 <span>DEX Snapshot</span>
-                {dexData && (
-                  <span className="text-blue-400">{dexData.source}</span>
-                )}
+                <a
+                  href={TRADING_LINKS[token].dex.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 hover:underline"
+                >
+                  {TRADING_LINKS[token].dex.name} ↗
+                </a>
               </div>
 
               {dexData ? (

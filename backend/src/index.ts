@@ -580,8 +580,7 @@ interface AlignmentResult {
     | "BUY_ON_DEX"
     | "SELL_ON_DEX"
     | "NO_ACTION"
-    | "NOT_SUPPORTED_YET"
-    | "UNSAFE";
+    | "NOT_SUPPORTED_YET";
   direction: "BUY" | "SELL" | "NONE";
   required_usdt: number | null;
   required_tokens: number | null;
@@ -602,32 +601,34 @@ const ALIGNMENT_BANDS: Record<string, number> = {
   csr25_usdt: 100, // ±1.0% for CSR25
 };
 
-// SAFE CAPS - never recommend above these until user changes
-const MAX_USDT_CAPS: Record<string, number> = {
-  csr_usdt: 100, // max $100 for CSR
-  csr25_usdt: 250, // max $250 for CSR25
+// Max price impact caps (soft warning, not hard block)
+const MAX_IMPACT_CAPS: Record<string, number> = {
+  csr_usdt: 5.0, // warn if > 5% for CSR
+  csr25_usdt: 10.0, // warn if > 10% for CSR25
 };
 
-// Price impact caps - reject if impact exceeds this
-const PRICE_IMPACT_CAPS: Record<string, number> = {
-  csr_usdt: 1.0, // max 1% price impact for CSR
-  csr25_usdt: 2.0, // max 2% price impact for CSR25
+// Max gas as % of trade (gas gating)
+const MAX_GAS_BPS: Record<string, number> = {
+  csr_usdt: 500, // 5% max gas for CSR
+  csr25_usdt: 500, // 5% max gas for CSR25
 };
 
-// Freshness thresholds
-const CEX_STALE_SEC = 30;
-const DEX_STALE_SEC = 60;
+// Freshness thresholds - increased to be more tolerant
+const CEX_STALE_SEC = 120; // 2 minutes
+const DEX_STALE_SEC = 120; // 2 minutes
 
-app.get('/api/alignment/:market', async (req, res) => {
+app.get("/api/alignment/:market", async (req, res) => {
   const market = req.params.market.toLowerCase();
-  
-  if (market !== 'csr_usdt' && market !== 'csr25_usdt') {
-    return res.status(400).json({ error: 'Invalid market. Use csr_usdt or csr25_usdt' });
+
+  if (market !== "csr_usdt" && market !== "csr25_usdt") {
+    return res
+      .status(400)
+      .json({ error: "Invalid market. Use csr_usdt or csr25_usdt" });
   }
 
   const bandBps = ALIGNMENT_BANDS[market];
-  const maxUsdtCap = MAX_USDT_CAPS[market];
-  const priceImpactCap = PRICE_IMPACT_CAPS[market];
+  const maxImpactCap = MAX_IMPACT_CAPS[market];
+  const maxGasBps = MAX_GAS_BPS[market];
   const now = Date.now();
 
   // Initialize result with defaults
@@ -726,7 +727,7 @@ app.get('/api/alignment/:market', async (req, res) => {
       return res.json(result);
     }
 
-    // 3. Sort quotes by size (small to large) - LADDER APPROACH
+    // 3. Sort quotes by size (small to large)
     validQuotes.sort((a: any, b: any) => a.amountInUSDT - b.amountInUSDT);
 
     // 4. Get smallest quote as reference DEX price (spot price)
@@ -735,13 +736,13 @@ app.get('/api/alignment/:market', async (req, res) => {
     result.dex_exec_price = spotPrice;
     result.dex_quote_size_usdt = smallestQuote.amountInUSDT;
 
-    // 5. Calculate current deviation from CEX
-    const deviationPct = ((spotPrice - cexMid) / cexMid) * 100;
-    result.deviation_pct = Math.round(deviationPct * 100) / 100;
+    // 5. Calculate current gap from CEX (deviation)
+    const gapPct = ((spotPrice - cexMid) / cexMid) * 100;
+    result.deviation_pct = Math.round(gapPct * 100) / 100;
     const bandPct = bandBps / 100;
 
     // 6. Check if already aligned
-    if (Math.abs(deviationPct) <= bandPct) {
+    if (Math.abs(gapPct) <= bandPct) {
       result.status = "ALIGNED";
       result.direction = "NONE";
       result.reason = `within_band: ${result.deviation_pct}% vs ±${bandPct}%`;
@@ -753,103 +754,84 @@ app.get('/api/alignment/:market', async (req, res) => {
     if (spotPrice > cexMid) {
       // DEX expensive -> SELL needed (not implemented yet)
       result.direction = "SELL";
-      result.status = "NOT_SUPPORTED_YET";
-      result.reason = "sell_quoting_not_implemented";
+      result.status = "SELL_ON_DEX";
+      result.reason = "sell_quoting_not_implemented_yet";
       return res.json(result);
     }
 
     // DEX is cheap -> BUY on DEX to push price up
     result.direction = "BUY";
+    result.status = "BUY_ON_DEX";
 
-    // 8. LADDER-ONLY approach: find smallest safe quote that brings price into band
-    // Target: execution price should be >= cexMid * (1 - bandPct/100) to be within band
-    const targetPrice = cexMid * (1 - bandPct / 100);
+    // 8. IMPACT-DRIVEN approach: find smallest size where price_impact >= gap
+    // The price impact of a trade approximately equals how much the price will move
+    // We need impact >= |gap| - band to close the gap
+    const neededMovePct = Math.abs(gapPct) - bandPct;
 
     let selectedQuote: any = null;
-    let rejectReason: string | null = null;
+    let gasWarning = false;
 
     for (const quote of validQuotes) {
-      // Check safe cap first
-      if (quote.amountInUSDT > maxUsdtCap) {
-        if (!selectedQuote) {
-          rejectReason = `exceeds_safe_cap: max $${maxUsdtCap}`;
-        }
-        continue;
-      }
-
-      // Check price impact
-      const impact =
+      // Calculate price impact for this quote (vs spot)
+      const impactPct =
         ((quote.price_usdt_per_token - spotPrice) / spotPrice) * 100;
-      if (impact > priceImpactCap) {
-        if (!selectedQuote) {
-          rejectReason = `price_impact_too_high: ${impact.toFixed(
-            2
-          )}% > ${priceImpactCap}%`;
+
+      // Check if this impact is sufficient to close the gap
+      if (impactPct >= neededMovePct) {
+        selectedQuote = quote;
+
+        // Check gas gating
+        const gasBps = quote.gasEstimateUsdt
+          ? (quote.gasEstimateUsdt / quote.amountInUSDT) * 10000
+          : 0;
+        if (gasBps > maxGasBps) {
+          gasWarning = true;
         }
-        continue;
-      }
-
-      // Check if this quote brings price into band
-      if (quote.price_usdt_per_token >= targetPrice) {
-        selectedQuote = quote;
-        break; // Found the smallest safe quote that works
-      }
-
-      // This quote doesn't reach target but is safe - keep as fallback
-      if (!selectedQuote || quote.amountInUSDT > selectedQuote.amountInUSDT) {
-        selectedQuote = quote;
+        break;
       }
     }
 
-    // 9. Evaluate result
+    // If no quote has enough impact, use the largest available
     if (!selectedQuote) {
-      result.status = "UNSAFE";
-      result.reason = rejectReason || "no_safe_quotes_available";
-      result.confidence = "NONE";
-      return res.json(result);
-    }
-
-    // Check if selected quote actually reaches the target
-    const quoteDev =
-      ((selectedQuote.price_usdt_per_token - cexMid) / cexMid) * 100;
-    const reachesTarget = Math.abs(quoteDev) <= bandPct;
-
-    if (!reachesTarget) {
-      // Best safe quote doesn't reach band
-      result.status = "UNSAFE";
-      result.reason = `not_achievable_within_safe_limits: best safe quote $${
-        selectedQuote.amountInUSDT
-      } gives ${quoteDev.toFixed(2)}% deviation`;
+      selectedQuote = validQuotes[validQuotes.length - 1];
+      result.reason = `largest_available: impact may be insufficient`;
       result.confidence = "LOW";
-
-      // Still populate the data so user can see what's available
-      result.required_usdt = selectedQuote.amountInUSDT;
-      result.required_tokens = selectedQuote.amountOutToken;
-      result.expected_exec_price = selectedQuote.price_usdt_per_token;
-      const impact =
-        ((selectedQuote.price_usdt_per_token - spotPrice) / spotPrice) * 100;
-      result.price_impact_pct = Math.round(impact * 100) / 100;
-      result.network_cost_usd = selectedQuote.gasEstimateUsdt || null;
-
-      return res.json(result);
+    } else {
+      result.confidence = validQuotes.length >= 3 ? "HIGH" : "MEDIUM";
     }
 
-    // SUCCESS: Found a safe quote that reaches the band
-    result.status = "BUY_ON_DEX";
+    // Populate result
     result.required_usdt = selectedQuote.amountInUSDT;
     result.required_tokens = selectedQuote.amountOutToken;
     result.expected_exec_price = selectedQuote.price_usdt_per_token;
 
-    const impact =
+    const impactPct =
       ((selectedQuote.price_usdt_per_token - spotPrice) / spotPrice) * 100;
-    result.price_impact_pct = Math.round(impact * 100) / 100;
+    result.price_impact_pct = Math.round(impactPct * 100) / 100;
     result.network_cost_usd = selectedQuote.gasEstimateUsdt || null;
-    result.confidence = validQuotes.length >= 3 ? "HIGH" : "MEDIUM";
-    result.reason = `ladder_quote: $${
-      selectedQuote.amountInUSDT
-    } → ${selectedQuote.amountOutToken.toFixed(
-      2
-    )} tokens @ $${selectedQuote.price_usdt_per_token.toFixed(6)}`;
+
+    // Build reason string
+    if (gasWarning) {
+      result.status = "BUY_ON_DEX";
+      result.reason = `⚠️ GAS_HIGH: $${selectedQuote.amountInUSDT} → ${
+        selectedQuote.amountOutToken?.toFixed(2) || "?"
+      } tokens, impact ${impactPct.toFixed(2)}%`;
+    } else if (impactPct >= neededMovePct) {
+      result.reason = `$${selectedQuote.amountInUSDT} → ${
+        selectedQuote.amountOutToken?.toFixed(2) || "?"
+      } tokens, impact ${impactPct.toFixed(2)}% (need ${neededMovePct.toFixed(
+        2
+      )}%)`;
+    } else {
+      result.reason = `best: $${
+        selectedQuote.amountInUSDT
+      }, impact ${impactPct.toFixed(2)}% < needed ${neededMovePct.toFixed(2)}%`;
+    }
+
+    // Warn if impact is very high
+    if (impactPct > maxImpactCap) {
+      result.reason = `⚠️ HIGH_IMPACT: ${result.reason}`;
+    }
 
     return res.json(result);
   } catch (error: any) {
@@ -859,7 +841,7 @@ app.get('/api/alignment/:market', async (req, res) => {
 });
 
 // Alignment for all markets
-app.get('/api/alignment', async (req, res) => {
+app.get("/api/alignment", async (req, res) => {
   try {
     const [csrResp, csr25Resp] = await Promise.all([
       axios.get(`http://localhost:${PORT}/api/alignment/csr_usdt`),
@@ -869,6 +851,86 @@ app.get('/api/alignment', async (req, res) => {
       ts: new Date().toISOString(),
       csr_usdt: csrResp.data,
       csr25_usdt: csr25Resp.data,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Quote ladder endpoint - returns all trade simulations for display
+app.get("/api/ladder/:token", async (req, res) => {
+  const token = req.params.token.toUpperCase();
+  if (token !== "CSR" && token !== "CSR25") {
+    return res.status(400).json({ error: "Invalid token. Use CSR or CSR25" });
+  }
+
+  try {
+    const scraperResp = await axios.get(
+      `${UNISWAP_SCRAPER_URL}/quotes/${token}`,
+      { timeout: 5000 }
+    );
+    const quotes = scraperResp.data?.quotes || [];
+    const now = Date.now();
+
+    // Get CEX mid for deviation calculation
+    let cexMid: number | null = null;
+    if (token === "CSR") {
+      const latoken = dashboardData.market_state?.csr_usdt?.latoken_ticker;
+      if (latoken?.bid && latoken?.ask) {
+        cexMid = (latoken.bid + latoken.ask) / 2;
+      }
+    } else {
+      const lbank = dashboardData.market_state?.csr25_usdt?.lbank_ticker;
+      if (lbank?.bid && lbank?.ask) {
+        cexMid = (lbank.bid + lbank.ask) / 2;
+      }
+    }
+
+    // Get spot price from smallest valid quote
+    const validQuotes = quotes.filter(
+      (q: any) => q.valid && q.price_usdt_per_token > 0
+    );
+    const spotPrice =
+      validQuotes.length > 0
+        ? validQuotes.reduce((a: any, b: any) =>
+            a.amountInUSDT < b.amountInUSDT ? a : b
+          ).price_usdt_per_token
+        : null;
+
+    // Enrich quotes with calculated fields
+    const enrichedQuotes = quotes.map((q: any) => {
+      const ageSeconds = q.ts ? Math.round(now / 1000 - q.ts) : null;
+      const impactPct =
+        spotPrice && q.price_usdt_per_token > 0
+          ? ((q.price_usdt_per_token - spotPrice) / spotPrice) * 100
+          : null;
+      const deviationPct =
+        cexMid && q.price_usdt_per_token > 0
+          ? ((q.price_usdt_per_token - cexMid) / cexMid) * 100
+          : null;
+
+      return {
+        usdt_in: q.amountInUSDT,
+        tokens_out: q.amountOutToken,
+        exec_price: q.price_usdt_per_token,
+        price_impact_pct:
+          impactPct !== null ? Math.round(impactPct * 100) / 100 : null,
+        deviation_pct:
+          deviationPct !== null ? Math.round(deviationPct * 100) / 100 : null,
+        gas_usdt: q.gasEstimateUsdt || null,
+        age_seconds: ageSeconds,
+        valid: q.valid,
+        error: q.error || null,
+      };
+    });
+
+    res.json({
+      token,
+      cex_mid: cexMid,
+      spot_price: spotPrice,
+      quotes: enrichedQuotes,
+      total: quotes.length,
+      valid: validQuotes.length,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

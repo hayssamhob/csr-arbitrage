@@ -5,51 +5,57 @@
  * Required trade sizes MUST come from this ladder, never invented.
  */
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 
-interface Quote {
-  amountInUSDT: number;
-  tokensOut: number;
-  executionPrice: number; // USDT per token
-  gasEstimateUsdt: number | null;
+interface LadderQuote {
+  usdt_in: number;
+  tokens_out: number;
+  exec_price: number;
+  price_impact_pct: number | null;
+  deviation_pct: number | null;
+  gas_usdt: number | null;
+  age_seconds: number | null;
   valid: boolean;
-  reason?: string;
-  timestamp?: number;
+  error: string | null;
+}
+
+interface LadderResponse {
+  token: string;
+  cex_mid: number | null;
+  spot_price: number | null;
+  quotes: LadderQuote[];
+  total: number;
+  valid: number;
 }
 
 interface QuoteLadderProps {
   token: "CSR" | "CSR25";
-  quotes: Quote[];
-  cexPrice: number;
-  direction: "BUY" | "SELL";
 }
 
-// Full ladder from $1 to $1000 as requested
-const LADDER_SIZES = [1, 5, 10, 25, 50, 100, 250, 500, 1000];
+export function QuoteLadder({ token }: QuoteLadderProps) {
+  const [data, setData] = useState<LadderResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export function QuoteLadder({ token, quotes, cexPrice, direction }: QuoteLadderProps) {
-  // Map quotes by size for quick lookup
-  const quotesBySize = useMemo(() => {
-    const map = new Map<number, Quote>();
-    quotes.forEach(q => {
-      if (q.valid) {
-        // Find closest ladder size
-        const closest = LADDER_SIZES.reduce((prev, curr) => 
-          Math.abs(curr - q.amountInUSDT) < Math.abs(prev - q.amountInUSDT) ? curr : prev
-        );
-        if (Math.abs(closest - q.amountInUSDT) < 5) {
-          map.set(closest, q);
-        }
+  useEffect(() => {
+    const fetchLadder = async () => {
+      try {
+        const resp = await fetch(`/api/ladder/${token}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+        setData(json);
+        setError(null);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-    });
-    return map;
-  }, [quotes]);
+    };
 
-  // Calculate deviation from CEX price
-  const getDeviation = (dexPrice: number) => {
-    if (!cexPrice || cexPrice <= 0 || !dexPrice || dexPrice <= 0) return null;
-    return ((dexPrice - cexPrice) / cexPrice) * 100;
-  };
+    fetchLadder();
+    const interval = setInterval(fetchLadder, 10000); // Refresh every 10s
+    return () => clearInterval(interval);
+  }, [token]);
 
   const getDeviationColor = (deviation: number | null) => {
     if (deviation === null) return "text-slate-500";
@@ -60,7 +66,24 @@ export function QuoteLadder({ token, quotes, cexPrice, direction }: QuoteLadderP
     return "text-red-400";
   };
 
-  const formatPrice = (price: number) => {
+  const getImpactColor = (impact: number | null) => {
+    if (impact === null) return "text-slate-500";
+    if (impact <= 0.5) return "text-emerald-400";
+    if (impact <= 1.0) return "text-blue-400";
+    if (impact <= 2.0) return "text-yellow-400";
+    if (impact <= 5.0) return "text-orange-400";
+    return "text-red-400";
+  };
+
+  const getAgeColor = (age: number | null) => {
+    if (age === null) return "text-slate-500";
+    if (age <= 30) return "text-emerald-400";
+    if (age <= 60) return "text-blue-400";
+    if (age <= 120) return "text-yellow-400";
+    return "text-red-400";
+  };
+
+  const formatPrice = (price: number | null) => {
     if (!price || price <= 0) return "—";
     if (price < 0.0001) return price.toFixed(8);
     if (price < 0.01) return price.toFixed(6);
@@ -68,85 +91,122 @@ export function QuoteLadder({ token, quotes, cexPrice, direction }: QuoteLadderP
     return price.toFixed(2);
   };
 
-  const formatTokens = (tokens: number) => {
+  const formatTokens = (tokens: number | null) => {
     if (!tokens || tokens <= 0) return "—";
     if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(2)}M`;
     if (tokens >= 1000) return `${(tokens / 1000).toFixed(2)}K`;
     return tokens.toFixed(2);
   };
 
+  if (loading) {
+    return (
+      <div className="bg-slate-900/50 rounded-lg p-4">
+        <div className="animate-pulse text-slate-500">
+          Loading quote ladder...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-slate-900/50 rounded-lg p-4">
+        <div className="text-red-400">❌ Error: {error}</div>
+      </div>
+    );
+  }
+
+  if (!data || data.quotes.length === 0) {
+    return (
+      <div className="bg-slate-900/50 rounded-lg p-4">
+        <div className="text-yellow-400">
+          ⚠️ No quotes available - scraper may be down
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-slate-900/50 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-medium text-slate-300 flex items-center gap-2">
-          📊 Quote Ladder - {direction === "BUY" ? "USDT → " + token : token + " → USDT"}
+          📊 Trade Simulations - {token}
         </h4>
-        <span className="text-xs text-slate-500">
-          CEX Ref: ${formatPrice(cexPrice)}
-        </span>
+        <div className="text-xs text-slate-500">
+          CEX: ${formatPrice(data.cex_mid)} | Spot: $
+          {formatPrice(data.spot_price)}
+        </div>
       </div>
 
       {/* Header */}
-      <div className="grid grid-cols-5 gap-2 text-xs text-slate-500 mb-2 pb-2 border-b border-slate-700">
-        <div>Size (USDT)</div>
+      <div className="grid grid-cols-7 gap-1 text-xs text-slate-500 mb-2 pb-2 border-b border-slate-700">
+        <div>USDT In</div>
         <div className="text-right">Tokens Out</div>
-        <div className="text-right">Exec Price</div>
+        <div className="text-right">Price</div>
+        <div className="text-right">Impact</div>
         <div className="text-right">vs CEX</div>
         <div className="text-right">Gas</div>
+        <div className="text-right">Age</div>
       </div>
 
       {/* Ladder rows */}
-      <div className="space-y-1">
-        {LADDER_SIZES.map(size => {
-          const quote = quotesBySize.get(size);
-          const deviation = quote ? getDeviation(quote.executionPrice) : null;
-          
-          return (
-            <div
-              key={size}
-              className={`grid grid-cols-5 gap-2 text-sm py-1.5 px-1 rounded ${
-                quote ? "hover:bg-slate-800/50" : "opacity-50"
-              }`}
-            >
-              <div className="font-mono text-slate-300">${size}</div>
-              <div className="text-right font-mono text-slate-300">
-                {quote ? formatTokens(quote.tokensOut) : "—"}
-              </div>
-              <div className="text-right font-mono text-blue-400">
-                {quote ? `$${formatPrice(quote.executionPrice)}` : "—"}
-              </div>
-              <div
-                className={`text-right font-mono font-medium ${getDeviationColor(
-                  deviation
-                )}`}
-              >
-                {deviation !== null
-                  ? `${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)}%`
-                  : "—"}
-              </div>
-              <div className="text-right font-mono text-slate-500">
-                {quote &&
-                quote.gasEstimateUsdt !== null &&
-                quote.gasEstimateUsdt > 0
-                  ? `$${quote.gasEstimateUsdt.toFixed(2)}`
-                  : "—"}
-              </div>
+      <div className="space-y-0.5 max-h-64 overflow-y-auto">
+        {data.quotes.map((quote, idx) => (
+          <div
+            key={idx}
+            className={`grid grid-cols-7 gap-1 text-xs py-1.5 px-1 rounded ${
+              quote.valid ? "hover:bg-slate-800/50" : "opacity-40 bg-red-900/10"
+            }`}
+          >
+            <div className="font-mono text-slate-300">${quote.usdt_in}</div>
+            <div className="text-right font-mono text-slate-300">
+              {formatTokens(quote.tokens_out)}
             </div>
-          );
-        })}
+            <div className="text-right font-mono text-blue-400">
+              ${formatPrice(quote.exec_price)}
+            </div>
+            <div
+              className={`text-right font-mono ${getImpactColor(
+                quote.price_impact_pct
+              )}`}
+            >
+              {quote.price_impact_pct !== null
+                ? `${quote.price_impact_pct.toFixed(2)}%`
+                : "—"}
+            </div>
+            <div
+              className={`text-right font-mono font-medium ${getDeviationColor(
+                quote.deviation_pct
+              )}`}
+            >
+              {quote.deviation_pct !== null
+                ? `${
+                    quote.deviation_pct >= 0 ? "+" : ""
+                  }${quote.deviation_pct.toFixed(2)}%`
+                : "—"}
+            </div>
+            <div className="text-right font-mono text-slate-500">
+              {quote.gas_usdt !== null ? `$${quote.gas_usdt.toFixed(2)}` : "—"}
+            </div>
+            <div
+              className={`text-right font-mono ${getAgeColor(
+                quote.age_seconds
+              )}`}
+            >
+              {quote.age_seconds !== null ? `${quote.age_seconds}s` : "—"}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Summary */}
       <div className="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-500">
         <div className="flex justify-between">
-          <span>Quotes available: {quotes.filter(q => q.valid).length}</span>
-          <span>Source: UI Scrape</span>
+          <span>
+            Valid: {data.valid}/{data.total}
+          </span>
+          <span>Source: Uniswap UI Scrape</span>
         </div>
-        {quotes.length === 0 && (
-          <div className="mt-2 text-yellow-400">
-            ⚠️ No quotes available - scraper may be down
-          </div>
-        )}
       </div>
     </div>
   );

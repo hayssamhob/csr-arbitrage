@@ -18,8 +18,7 @@ interface BackendAlignment {
     | "BUY_ON_DEX"
     | "SELL_ON_DEX"
     | "NO_ACTION"
-    | "NOT_SUPPORTED_YET"
-    | "UNSAFE";
+    | "NOT_SUPPORTED_YET";
   direction: "BUY" | "SELL" | "NONE";
   required_usdt: number | null;
   required_tokens: number | null;
@@ -127,72 +126,6 @@ export function AlignmentDisplay({
             </div>
           </div>
         </div>
-        <div className="mt-3 text-xs text-slate-500">
-          Quotes: {alignment.quotes_valid}/{alignment.quotes_available} valid
-        </div>
-      </div>
-    );
-  }
-
-  // UNSAFE - alignment not achievable within safe limits
-  if (alignment.status === "UNSAFE") {
-    return (
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border-2 border-orange-500/50">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">{TOKEN_NAMES[token]}</h2>
-          <span className="text-xs px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-bold">
-            ⚠️ UNSAFE
-          </span>
-        </div>
-        <div className="bg-orange-500/10 rounded-xl p-4 mb-4 border border-orange-500/20">
-          <div className="text-orange-400 font-medium mb-2">
-            Alignment not achievable within safe limits
-          </div>
-          <div className="text-orange-400/70 text-sm font-mono">
-            {alignment.reason}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="bg-slate-900/50 rounded-xl p-3">
-            <div className="text-xs text-slate-500 mb-1">
-              CEX ({CEX_SOURCES[token]})
-            </div>
-            <div className="font-mono text-lg text-white">
-              ${formatPrice(alignment.cex_mid)}
-            </div>
-          </div>
-          <div className="bg-slate-900/50 rounded-xl p-3">
-            <div className="text-xs text-slate-500 mb-1">DEX (Uniswap)</div>
-            <div className="font-mono text-lg text-orange-400">
-              ${formatPrice(alignment.dex_exec_price)}
-            </div>
-          </div>
-        </div>
-        {alignment.required_usdt && (
-          <div className="bg-slate-900/50 rounded-lg p-3 text-sm">
-            <div className="text-slate-400 mb-2">
-              Best safe quote available (doesn't reach target):
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Size:</span>
-              <span className="font-mono text-white">
-                ${alignment.required_usdt}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Tokens:</span>
-              <span className="font-mono text-white">
-                {formatTokens(alignment.required_tokens)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Impact:</span>
-              <span className="font-mono text-orange-400">
-                {alignment.price_impact_pct?.toFixed(2)}%
-              </span>
-            </div>
-          </div>
-        )}
         <div className="mt-3 text-xs text-slate-500">
           Quotes: {alignment.quotes_valid}/{alignment.quotes_available} valid
         </div>
