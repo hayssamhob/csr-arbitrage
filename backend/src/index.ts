@@ -1276,37 +1276,38 @@ app.get("/api/market", (req, res) => {
 });
 
 // ============================================================================
-// Uniswap v4 Recent Swaps - On-chain transaction history
+// Token Swap History - Using Etherscan API for full history
 // ============================================================================
 
-// Uniswap v4 PoolManager on Ethereum mainnet
-const POOL_MANAGER_ADDRESS = "0x000000000004444c5dc75cb358380d2e3de08a90";
-
-// Pool IDs for CSR and CSR25 (from pool explorer URLs)
-const POOL_IDS: Record<string, string> = {
-  CSR: "0x6c76bb9f364e72fcb57819d2920550768cf43e09e819daa40fabe9c7ab057f9e",
-  CSR25: "0x46afcc847653fa391320b2bde548c59cf384b029933667c541fb730c5641778e",
+// Token contract addresses
+const TOKEN_ADDRESSES: Record<string, string> = {
+  CSR: "0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
+  CSR25: "0x502E7230E142A332DFEd1095F7174834b2548982",
 };
 
-// Swap event signature for Uniswap v4 PoolManager
-// event Swap(PoolId indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)
-const SWAP_EVENT_SIGNATURE =
-  "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)";
-const SWAP_EVENT_TOPIC = ethers.id(SWAP_EVENT_SIGNATURE);
+// USDT address for identifying swap direction
+const USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7".toLowerCase();
 
-// Cache for recent swaps (30s TTL)
+// Known DEX router/pool addresses to filter swaps
+const DEX_ADDRESSES = new Set([
+  "0x000000000004444c5dc75cb358380d2e3de08a90", // Uniswap v4 PoolManager
+  "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad", // Uniswap Universal Router
+  "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", // Uniswap SwapRouter02
+  "0xe592427a0aece92de3edee1f18e0157c05861564", // Uniswap V3 SwapRouter
+].map(a => a.toLowerCase()));
+
+// Cache for swaps (60s TTL - longer since this is historical data)
 interface SwapCache {
   data: any[];
   timestamp: number;
 }
 const swapCache: Record<string, SwapCache> = {};
-const SWAP_CACHE_TTL_MS = 30000;
+const SWAP_CACHE_TTL_MS = 60000;
 
-// RPC provider (use public endpoint or configured one)
-const RPC_URL = process.env.RPC_URL || "https://eth.llamarpc.com";
-const provider = new ethers.JsonRpcProvider(RPC_URL);
+// Etherscan API key (free tier: 5 calls/sec)
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 
-// Get recent swaps for a token
+// Get token transfer history from Etherscan
 app.get("/api/swaps/:token", async (req, res) => {
   const token = req.params.token.toUpperCase();
 
@@ -1314,7 +1315,7 @@ app.get("/api/swaps/:token", async (req, res) => {
     return res.status(400).json({ error: "Invalid token. Use CSR or CSR25" });
   }
 
-  const poolId = POOL_IDS[token];
+  const tokenAddress = TOKEN_ADDRESSES[token];
   const cacheKey = token;
 
   // Check cache
@@ -1322,7 +1323,7 @@ app.get("/api/swaps/:token", async (req, res) => {
   if (cached && Date.now() - cached.timestamp < SWAP_CACHE_TTL_MS) {
     return res.json({
       token,
-      pool_id: poolId,
+      token_address: tokenAddress,
       swaps: cached.data,
       cached: true,
       cache_age_sec: Math.round((Date.now() - cached.timestamp) / 1000),
@@ -1330,106 +1331,119 @@ app.get("/api/swaps/:token", async (req, res) => {
   }
 
   try {
-    // Get current block
-    const currentBlock = await provider.getBlockNumber();
-    const fromBlock = currentBlock - 1000; // ~3.3 hours of blocks (RPC limit is 1k blocks)
+    // Query Etherscan for token transfers
+    const apiUrl = `https://api.etherscan.io/api?module=account&action=tokentx&contractaddress=${tokenAddress}&page=1&offset=100&sort=desc${
+      ETHERSCAN_API_KEY ? `&apikey=${ETHERSCAN_API_KEY}` : ""
+    }`;
 
-    // Query Swap events filtered by pool ID
-    const filter = {
-      address: POOL_MANAGER_ADDRESS,
-      topics: [
-        SWAP_EVENT_TOPIC,
-        poolId, // indexed pool ID
-      ],
-      fromBlock,
-      toBlock: currentBlock,
-    };
+    const response = await axios.get(apiUrl);
 
-    const logs = await provider.getLogs(filter);
+    if (response.data.status !== "1" || !response.data.result) {
+      // Handle "No transactions found" as empty array, not error
+      if (response.data.message === "No transactions found") {
+        swapCache[cacheKey] = { data: [], timestamp: Date.now() };
+        return res.json({
+          token,
+          token_address: tokenAddress,
+          swaps: [],
+          cached: false,
+          total_found: 0,
+        });
+      }
+      throw new Error(response.data.message || "Etherscan API error");
+    }
 
-    // Get unique block numbers for timestamp lookup
-    const blockNumbers = [...new Set(logs.map((l: any) => l.blockNumber))];
-    const blockTimestamps: Record<number, number> = {};
+    const transfers = response.data.result;
 
-    // Fetch block timestamps (batch for efficiency)
-    await Promise.all(
-      blockNumbers.slice(0, 20).map(async (blockNum: any) => {
-        try {
-          const block = await provider.getBlock(blockNum);
-          if (block) {
-            blockTimestamps[blockNum as number] = block.timestamp;
-          }
-        } catch {
-          // Ignore individual block fetch errors
-        }
-      })
-    );
+    // Process transfers into swap format
+    const swaps = transfers.map((tx: any) => {
+      const fromAddr = tx.from.toLowerCase();
+      const toAddr = tx.to.toLowerCase();
 
-    // Decode and format swap events
-    const swaps = logs
-      .slice(-20) // Last 20 swaps
-      .reverse() // Most recent first
-      .map((log: any) => {
-        try {
-          // Decode non-indexed parameters: amount0, amount1, sqrtPriceX96, liquidity, tick, fee
-          const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-          const decoded = abiCoder.decode(
-            ["int128", "int128", "uint160", "uint128", "int24", "uint24"],
-            log.data
-          );
+      // Determine if this is a DEX swap (involves known DEX addresses)
+      const isDexSwap =
+        DEX_ADDRESSES.has(fromAddr) || DEX_ADDRESSES.has(toAddr);
 
-          const amount0 = decoded[0];
-          const amount1 = decoded[1];
-          const timestamp = blockTimestamps[log.blockNumber] || null;
+      // Determine swap type:
+      // - If token goes TO a DEX/pool = SELL (user selling token)
+      // - If token comes FROM a DEX/pool = BUY (user buying token)
+      let type: string;
+      let wallet: string;
 
-          // Determine swap direction (simplified: positive amount0 = sell token, negative = buy token)
-          const type = amount0 > 0n ? "SELL" : "BUY";
+      if (DEX_ADDRESSES.has(toAddr)) {
+        type = "Sell " + token;
+        wallet = fromAddr;
+      } else if (DEX_ADDRESSES.has(fromAddr)) {
+        type = "Buy " + token;
+        wallet = toAddr;
+      } else {
+        type = "Transfer";
+        wallet = fromAddr;
+      }
 
-          return {
-            tx_hash: log.transactionHash,
-            block_number: log.blockNumber,
-            timestamp: timestamp,
-            time_iso: timestamp
-              ? new Date(timestamp * 1000).toISOString()
-              : null,
-            type,
-            amount0: amount0.toString(),
-            amount1: amount1.toString(),
-            sender: log.topics[2] ? "0x" + log.topics[2].slice(26) : null,
-            etherscan_url: `https://etherscan.io/tx/${log.transactionHash}`,
-          };
-        } catch (e) {
-          return {
-            tx_hash: log.transactionHash,
-            block_number: log.blockNumber,
-            timestamp: blockTimestamps[log.blockNumber] || null,
-            type: "SWAP",
-            error: "decode_failed",
-            etherscan_url: `https://etherscan.io/tx/${log.transactionHash}`,
-          };
-        }
-      });
+      // Calculate token amount (handle decimals)
+      const decimals = parseInt(tx.tokenDecimal) || 18;
+      const rawAmount = BigInt(tx.value);
+      const tokenAmount = Number(rawAmount) / Math.pow(10, decimals);
+
+      // Format time
+      const timestamp = parseInt(tx.timeStamp);
+      const date = new Date(timestamp * 1000);
+      const now = Date.now();
+      const ageMs = now - date.getTime();
+
+      let timeAgo: string;
+      if (ageMs < 3600000) {
+        timeAgo = `${Math.floor(ageMs / 60000)}m`;
+      } else if (ageMs < 86400000) {
+        timeAgo = `${Math.floor(ageMs / 3600000)}h`;
+      } else {
+        timeAgo = `${Math.floor(ageMs / 86400000)}d`;
+      }
+
+      return {
+        tx_hash: tx.hash,
+        block_number: parseInt(tx.blockNumber),
+        timestamp,
+        time_ago: timeAgo,
+        time_iso: date.toISOString(),
+        type,
+        is_dex_swap: isDexSwap,
+        token_amount: tokenAmount,
+        token_amount_formatted: tokenAmount.toLocaleString(undefined, {
+          maximumFractionDigits: 2,
+        }),
+        wallet: `${wallet.slice(0, 6)}...${wallet.slice(-4)}`,
+        wallet_full: wallet,
+        from: tx.from,
+        to: tx.to,
+        etherscan_url: `https://etherscan.io/tx/${tx.hash}`,
+      };
+    });
+
+    // Filter to only show DEX swaps (not regular transfers)
+    const dexSwaps = swaps.filter((s: any) => s.is_dex_swap);
 
     // Update cache
     swapCache[cacheKey] = {
-      data: swaps,
+      data: dexSwaps,
       timestamp: Date.now(),
     };
 
     res.json({
       token,
-      pool_id: poolId,
-      swaps,
+      token_address: tokenAddress,
+      swaps: dexSwaps,
       cached: false,
-      total_found: logs.length,
-      blocks_scanned: currentBlock - fromBlock,
+      total_transfers: transfers.length,
+      dex_swaps: dexSwaps.length,
     });
   } catch (error: any) {
     console.error(`Error fetching swaps for ${token}:`, error.message);
     res.status(500).json({
       error: error.message,
       token,
-      pool_id: poolId,
+      token_address: tokenAddress,
     });
   }
 });
