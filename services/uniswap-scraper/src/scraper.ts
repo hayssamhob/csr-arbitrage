@@ -507,7 +507,8 @@ export class UniswapScraper {
         );
       }
 
-      // Extract gas estimate
+      // Extract gas estimate - first try to expand swap details
+      await this.expandSwapDetails(page);
       const { gasUsdt, gasRaw } = await this.extractGas(page);
 
       // Calculate prices
@@ -771,6 +772,39 @@ export class UniswapScraper {
     }
 
     return { value: null, raw: null };
+  }
+
+  /**
+   * Try to expand swap details section to reveal gas info
+   */
+  private async expandSwapDetails(page: Page): Promise<void> {
+    try {
+      // Look for clickable swap details header/button
+      const selectors = [
+        '[data-testid="swap-details-header"]',
+        '[class*="SwapDetailsDropdown"]',
+        '[class*="swap-details"]',
+        'button[aria-expanded="false"]',
+      ];
+
+      for (const selector of selectors) {
+        const el = await page.$(selector);
+        if (el) {
+          const isExpanded = await page.evaluate((s) => {
+            const elem = document.querySelector(s);
+            return elem?.getAttribute("aria-expanded") === "true";
+          }, selector);
+
+          if (!isExpanded) {
+            await el.click();
+            await page.waitForTimeout(300); // Wait for animation
+          }
+          break;
+        }
+      }
+    } catch {
+      // Ignore errors - gas extraction will handle missing data
+    }
   }
 
   /**
