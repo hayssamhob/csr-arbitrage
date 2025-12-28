@@ -397,10 +397,14 @@ function MarketCard({
         {uniswap ? (
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-slate-400">Price</span>
+              <span className="text-slate-400">Mid Price</span>
               <span className="font-mono text-blue-400">
                 ${formatPrice(uniswap.effective_price_usdt)}
               </span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">Pool Fee</span>
+              <span className="text-slate-500">0.3%</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Source</span>
