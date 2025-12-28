@@ -563,6 +563,264 @@ app.get('/api/scraper/quotes', async (req, res) => {
   }
 });
 
+// ============================================================
+// /api/alignment - AUTHORITATIVE endpoint for required trade sizes
+// Uses binary search on REAL quotes only. Never invents sizes.
+// ============================================================
+
+interface AlignmentResult {
+  market: string;
+  cex_mid: number | null;
+  dex_exec_price: number | null;
+  dex_quote_size_usdt: number | null;
+  deviation_pct: number | null;
+  band_bps: number;
+  status: 'ALIGNED' | 'BUY_ON_DEX' | 'SELL_ON_DEX' | 'NO_ACTION' | 'NOT_SUPPORTED_YET';
+  direction: 'BUY' | 'SELL' | 'NONE';
+  required_usdt: number | null;
+  required_tokens: number | null;
+  expected_exec_price: number | null;
+  price_impact_pct: number | null;
+  network_cost_usd: number | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  ts_cex: string | null;
+  ts_dex: number | null;
+  reason: string;
+  quotes_available: number;
+  quotes_valid: number;
+}
+
+// Alignment bands per token (in basis points)
+const ALIGNMENT_BANDS: Record<string, number> = {
+  csr_usdt: 50,    // ±0.5% for CSR
+  csr25_usdt: 100, // ±1.0% for CSR25
+};
+
+// Freshness thresholds
+const CEX_STALE_SEC = 30;
+const DEX_STALE_SEC = 60;
+
+app.get('/api/alignment/:market', async (req, res) => {
+  const market = req.params.market.toLowerCase();
+  
+  if (market !== 'csr_usdt' && market !== 'csr25_usdt') {
+    return res.status(400).json({ error: 'Invalid market. Use csr_usdt or csr25_usdt' });
+  }
+
+  const bandBps = ALIGNMENT_BANDS[market];
+  const now = Date.now();
+
+  // Initialize result with defaults
+  const result: AlignmentResult = {
+    market,
+    cex_mid: null,
+    dex_exec_price: null,
+    dex_quote_size_usdt: null,
+    deviation_pct: null,
+    band_bps: bandBps,
+    status: 'NO_ACTION',
+    direction: 'NONE',
+    required_usdt: null,
+    required_tokens: null,
+    expected_exec_price: null,
+    price_impact_pct: null,
+    network_cost_usd: null,
+    confidence: 'NONE',
+    ts_cex: null,
+    ts_dex: null,
+    reason: '',
+    quotes_available: 0,
+    quotes_valid: 0,
+  };
+
+  try {
+    // 1. Get CEX mid price
+    let cexMid: number | null = null;
+    let cexTs: string | null = null;
+
+    if (market === 'csr_usdt') {
+      // CSR uses LATOKEN
+      const latoken = dashboardData.market_state?.csr_usdt?.latoken_ticker;
+      if (latoken?.bid && latoken?.ask) {
+        cexMid = (latoken.bid + latoken.ask) / 2;
+        cexTs = latoken.ts;
+      }
+    } else {
+      // CSR25 uses LBANK
+      const lbank = dashboardData.market_state?.csr25_usdt?.lbank_ticker;
+      if (lbank?.bid && lbank?.ask) {
+        cexMid = (lbank.bid + lbank.ask) / 2;
+        cexTs = lbank.ts;
+      }
+    }
+
+    result.cex_mid = cexMid;
+    result.ts_cex = cexTs;
+
+    // Check CEX freshness
+    if (!cexMid || !cexTs) {
+      result.status = 'NO_ACTION';
+      result.reason = 'cex_data_missing';
+      return res.json(result);
+    }
+
+    const cexAgeSec = (now - new Date(cexTs).getTime()) / 1000;
+    if (cexAgeSec > CEX_STALE_SEC) {
+      result.status = 'NO_ACTION';
+      result.reason = `cex_stale: ${Math.round(cexAgeSec)}s > ${CEX_STALE_SEC}s`;
+      return res.json(result);
+    }
+
+    // 2. Get DEX quotes from scraper
+    let scraperQuotes: any[] = [];
+    try {
+      const token = market === 'csr_usdt' ? 'CSR' : 'CSR25';
+      const scraperResp = await axios.get(`${UNISWAP_SCRAPER_URL}/quotes/${token}`, { timeout: 5000 });
+      scraperQuotes = scraperResp.data?.quotes || [];
+    } catch {
+      result.status = 'NO_ACTION';
+      result.reason = 'scraper_unavailable';
+      return res.json(result);
+    }
+
+    result.quotes_available = scraperQuotes.length;
+    const validQuotes = scraperQuotes.filter((q: any) => q.valid && q.price_usdt_per_token > 0);
+    result.quotes_valid = validQuotes.length;
+
+    if (validQuotes.length === 0) {
+      result.status = 'NO_ACTION';
+      result.reason = 'no_valid_dex_quotes';
+      return res.json(result);
+    }
+
+    // Check DEX freshness (use most recent quote)
+    const latestQuote = validQuotes.reduce((a: any, b: any) => (a.ts > b.ts ? a : b));
+    result.ts_dex = latestQuote.ts;
+    const dexAgeSec = (now / 1000) - latestQuote.ts;
+    if (dexAgeSec > DEX_STALE_SEC) {
+      result.status = 'NO_ACTION';
+      result.reason = `dex_stale: ${Math.round(dexAgeSec)}s > ${DEX_STALE_SEC}s`;
+      return res.json(result);
+    }
+
+    // 3. Sort quotes by size and check monotonicity
+    validQuotes.sort((a: any, b: any) => a.amountInUSDT - b.amountInUSDT);
+    
+    // For BUY: price should increase with size (more slippage)
+    // Check if quotes are monotonic
+    let isMonotonic = true;
+    for (let i = 1; i < validQuotes.length; i++) {
+      // Allow small non-monotonicity (5%) due to UI scraping variance
+      const prevPrice = validQuotes[i - 1].price_usdt_per_token;
+      const currPrice = validQuotes[i].price_usdt_per_token;
+      if (currPrice < prevPrice * 0.95) {
+        isMonotonic = false;
+        break;
+      }
+    }
+
+    if (!isMonotonic) {
+      result.status = 'NO_ACTION';
+      result.reason = 'quotes_non_monotonic';
+      result.confidence = 'NONE';
+      return res.json(result);
+    }
+
+    // 4. Get smallest quote as reference DEX price
+    const smallestQuote = validQuotes[0];
+    const dexPrice = smallestQuote.price_usdt_per_token;
+    result.dex_exec_price = dexPrice;
+    result.dex_quote_size_usdt = smallestQuote.amountInUSDT;
+
+    // 5. Calculate deviation
+    const deviationPct = ((dexPrice - cexMid) / cexMid) * 100;
+    result.deviation_pct = Math.round(deviationPct * 100) / 100;
+
+    const bandPct = bandBps / 100;
+
+    // 6. Determine if aligned
+    if (Math.abs(deviationPct) <= bandPct) {
+      result.status = 'ALIGNED';
+      result.direction = 'NONE';
+      result.reason = `within_band: ${result.deviation_pct}% vs ±${bandPct}%`;
+      result.confidence = 'HIGH';
+      return res.json(result);
+    }
+
+    // 7. Determine direction
+    if (dexPrice > cexMid) {
+      // DEX is expensive -> need to SELL on DEX to push price down
+      result.direction = 'SELL';
+      result.status = 'NOT_SUPPORTED_YET';
+      result.reason = 'sell_quoting_not_implemented';
+      result.confidence = 'NONE';
+      return res.json(result);
+    } else {
+      // DEX is cheap -> need to BUY on DEX to push price up
+      result.direction = 'BUY';
+      result.status = 'BUY_ON_DEX';
+    }
+
+    // 8. Binary search to find required size
+    // We need to find the USDT amount where exec_price reaches cex_mid * (1 - band)
+    const targetPrice = cexMid * (1 - bandPct / 100);
+    
+    // Find the quote that gets closest to target without exceeding
+    let bestQuote: any = null;
+    for (const quote of validQuotes) {
+      if (quote.price_usdt_per_token >= targetPrice) {
+        bestQuote = quote;
+        break;
+      }
+    }
+
+    if (!bestQuote) {
+      // All quotes are below target - use largest available
+      bestQuote = validQuotes[validQuotes.length - 1];
+      result.reason = `largest_quote_insufficient: need price >= ${targetPrice.toFixed(6)}, best is ${bestQuote.price_usdt_per_token.toFixed(6)}`;
+      result.confidence = 'LOW';
+    } else {
+      result.reason = `quote_based: ${bestQuote.amountInUSDT} USDT brings price to ${bestQuote.price_usdt_per_token.toFixed(6)}`;
+      result.confidence = validQuotes.length >= 3 ? 'HIGH' : 'MEDIUM';
+    }
+
+    result.required_usdt = bestQuote.amountInUSDT;
+    result.required_tokens = bestQuote.amountOutToken;
+    result.expected_exec_price = bestQuote.price_usdt_per_token;
+    
+    // Price impact = (exec_price - spot_price) / spot_price
+    const priceImpact = ((bestQuote.price_usdt_per_token - dexPrice) / dexPrice) * 100;
+    result.price_impact_pct = Math.round(priceImpact * 100) / 100;
+    
+    // Gas cost - scraped or null (never invented)
+    result.network_cost_usd = bestQuote.gasEstimateUsdt || null;
+
+    return res.json(result);
+
+  } catch (error: any) {
+    result.status = 'NO_ACTION';
+    result.reason = `error: ${error.message}`;
+    return res.json(result);
+  }
+});
+
+// Alignment for all markets
+app.get('/api/alignment', async (req, res) => {
+  try {
+    const [csrResp, csr25Resp] = await Promise.all([
+      axios.get(`http://localhost:${PORT}/api/alignment/csr_usdt`),
+      axios.get(`http://localhost:${PORT}/api/alignment/csr25_usdt`),
+    ]);
+    res.json({
+      ts: new Date().toISOString(),
+      csr_usdt: csrResp.data,
+      csr25_usdt: csr25Resp.data,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/market', (req, res) => {
   res.json(dashboardData.market_state);
 });
