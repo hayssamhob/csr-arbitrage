@@ -14,10 +14,10 @@ import {
   type ServiceStatus,
 } from "./components/GlobalStatusBar";
 import { MarketContextCard } from "./components/MarketContextCard";
-import { PriceAlignmentCard } from "./components/PriceAlignmentCard";
 import { UniswapTradePanel } from "./components/UniswapTradePanel";
 import { useWallet } from "./hooks/useWallet";
 import type { DexQuote } from "./lib/alignmentEngine";
+import type { AlignmentDisplay } from "./components/AlignmentDisplay";
 
 // Freshness thresholds per product spec v1.0
 const FRESHNESS = {
@@ -153,6 +153,40 @@ interface ScraperData {
   };
 }
 
+// Backend alignment result - AUTHORITATIVE source for required trade sizes
+interface BackendAlignment {
+  market: string;
+  cex_mid: number | null;
+  dex_exec_price: number | null;
+  dex_quote_size_usdt: number | null;
+  deviation_pct: number | null;
+  band_bps: number;
+  status:
+    | "ALIGNED"
+    | "BUY_ON_DEX"
+    | "SELL_ON_DEX"
+    | "NO_ACTION"
+    | "NOT_SUPPORTED_YET";
+  direction: "BUY" | "SELL" | "NONE";
+  required_usdt: number | null;
+  required_tokens: number | null;
+  expected_exec_price: number | null;
+  price_impact_pct: number | null;
+  network_cost_usd: number | null;
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "NONE";
+  ts_cex: string | null;
+  ts_dex: number | null;
+  reason: string;
+  quotes_available: number;
+  quotes_valid: number;
+}
+
+interface AlignmentData {
+  ts: string;
+  csr_usdt: BackendAlignment;
+  csr25_usdt: BackendAlignment;
+}
+
 function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -162,6 +196,9 @@ function App() {
     csr25_usdt: [],
   });
   const [scraperData, setScraperData] = useState<ScraperData | null>(null);
+  const [alignmentData, setAlignmentData] = useState<AlignmentData | null>(
+    null
+  );
   const wallet = useWallet();
   const [showTradePanel, setShowTradePanel] = useState<{
     token: "CSR" | "CSR25";
@@ -385,6 +422,25 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch alignment data from backend - AUTHORITATIVE source for required trade sizes
+  // Frontend does NOT compute required sizes - only displays backend calculations
+  useEffect(() => {
+    async function fetchAlignment() {
+      try {
+        const resp = await fetch(`${API_URL}/api/alignment`);
+        if (resp.ok) {
+          const alignmentJson = await resp.json();
+          setAlignmentData(alignmentJson);
+        }
+      } catch (e) {
+        console.error("Failed to fetch alignment:", e);
+      }
+    }
+    fetchAlignment();
+    const interval = setInterval(fetchAlignment, 3000); // More frequent for responsiveness
+    return () => clearInterval(interval);
+  }, []);
+
   // Fetch initial data
   useEffect(() => {
     async function fetchInitialData() {
@@ -556,17 +612,15 @@ function App() {
             </span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <PriceAlignmentCard
+            <AlignmentDisplay
               token="CSR"
-              cexPrice={data?.market_state?.csr_usdt?.latoken_ticker?.bid || 0}
-              dexQuotes={csrDexQuotes}
+              alignment={alignmentData?.csr_usdt || null}
               executionMode={executionMode}
               onExecute={handleAlignmentExecute}
             />
-            <PriceAlignmentCard
+            <AlignmentDisplay
               token="CSR25"
-              cexPrice={data?.market_state?.csr25_usdt?.lbank_ticker?.bid || 0}
-              dexQuotes={csr25DexQuotes}
+              alignment={alignmentData?.csr25_usdt || null}
               executionMode={executionMode}
               onExecute={handleAlignmentExecute}
             />
