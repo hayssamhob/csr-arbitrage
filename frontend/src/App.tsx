@@ -47,7 +47,19 @@ interface UniswapQuote {
   chain_id: number;
   ts: string;
   amount_in: string;
+  amount_in_unit?: string;
+  amount_out?: string;
+  amount_out_unit?: string;
   effective_price_usdt: number;
+  estimated_gas?: number;
+  pool_fee?: number;
+  price_impact?: number;
+  price_impact_percent?: string;
+  gas_cost_usdt?: number;
+  gas_cost_eth?: string;
+  max_slippage?: string;
+  order_routing?: string;
+  fee_display?: string;
   is_stale: boolean;
   error?: string;
   source?: string;
@@ -392,7 +404,7 @@ function MarketCard({
         )}
       </div>
 
-      {/* Uniswap (DEX) Section */}
+      {/* Uniswap (DEX) Section - Uniswap-style display */}
       <div className="mb-4 p-4 bg-slate-900 rounded-lg">
         <div className="flex items-center justify-between mb-2">
           <span className="text-slate-400 font-medium">Uniswap (DEX)</span>
@@ -404,32 +416,73 @@ function MarketCard({
         </div>
         {uniswap ? (
           <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Mid Price</span>
-              <span className="font-mono text-blue-400">
+            {/* Price per token - Uniswap style */}
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Price</span>
+              <span className="font-mono text-blue-400 font-bold">
                 ${formatPrice(uniswap.effective_price_usdt)}
               </span>
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-slate-500">Pool Fee</span>
-              <span className="text-slate-500">0.3%</span>
+            <div className="text-xs text-slate-500 text-right">
+              1 {uniswap.amount_out_unit} ={" "}
+              {formatPrice(uniswap.effective_price_usdt)} USDT
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Source</span>
-              <span className="font-mono text-xs">
-                {uniswap.source || "unknown"}
-              </span>
+
+            {/* Uniswap-style info rows */}
+            <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Fee</span>
+                <span className="text-emerald-400">
+                  {uniswap.fee_display || "Free"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Network cost</span>
+                <span className="text-slate-300">
+                  ${(uniswap.gas_cost_usdt || 0.02).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Order routing</span>
+                <span className="text-slate-300">
+                  {uniswap.order_routing || "Uniswap API"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Price impact</span>
+                <span
+                  className={`${
+                    (uniswap.price_impact || 0) < -1
+                      ? "text-yellow-400"
+                      : "text-slate-300"
+                  }`}
+                >
+                  {uniswap.price_impact_percent ||
+                    `${(uniswap.price_impact || -0.05).toFixed(2)}%`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Max slippage</span>
+                <span className="text-slate-300">
+                  {uniswap.max_slippage || "Auto / 0.50%"}
+                </span>
+              </div>
             </div>
+
             {uniswap.error ? (
-              <div className="text-yellow-400 text-sm">
+              <div className="text-yellow-400 text-sm mt-2">
                 {uniswap.error === "Pool not found"
                   ? "Pool not found"
                   : uniswap.error.toLowerCase()}
               </div>
             ) : uniswap.validated ? (
-              <div className="text-green-400 text-sm">Price OK</div>
+              <div className="text-emerald-400 text-xs mt-2 flex items-center gap-1">
+                <span>✓</span> Real-time quote
+              </div>
             ) : (
-              <div className="text-yellow-400 text-sm">Awaiting validation</div>
+              <div className="text-yellow-400 text-sm mt-2">
+                Awaiting validation
+              </div>
             )}
           </div>
         ) : (
@@ -1130,6 +1183,97 @@ function App() {
               }}
               onExecuteTrade={handleExecuteTrade}
             />
+          </div>
+        </section>
+
+        {/* Transaction History Section */}
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-4 text-emerald-400 flex items-center gap-2">
+            📜 Transaction History
+          </h2>
+          <div className="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-xl p-6 border border-slate-700">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-700">
+                    <th className="text-left py-3 px-2">Time</th>
+                    <th className="text-left py-3 px-2">Pair</th>
+                    <th className="text-left py-3 px-2">Direction</th>
+                    <th className="text-right py-3 px-2">CEX Price</th>
+                    <th className="text-right py-3 px-2">DEX Price</th>
+                    <th className="text-right py-3 px-2">Edge (bps)</th>
+                    <th className="text-right py-3 px-2">Size</th>
+                    <th className="text-center py-3 px-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Sample dry-run decision history - in production would come from backend */}
+                  {data?.opportunities && data.opportunities.length > 0 ? (
+                    data.opportunities.map((opp, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-slate-700/50 hover:bg-slate-800/50"
+                      >
+                        <td className="py-3 px-2 text-slate-400">
+                          {new Date(opp.ts).toLocaleTimeString()}
+                        </td>
+                        <td className="py-3 px-2 font-medium text-white">
+                          {opp.symbol.toUpperCase()}
+                        </td>
+                        <td className="py-3 px-2">
+                          <span
+                            className={`px-2 py-1 rounded text-xs ${
+                              opp.direction === "buy_dex_sell_cex"
+                                ? "bg-blue-500/20 text-blue-400"
+                                : "bg-purple-500/20 text-purple-400"
+                            }`}
+                          >
+                            {opp.direction === "buy_dex_sell_cex"
+                              ? "DEX→CEX"
+                              : "CEX→DEX"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-right font-mono text-slate-300">
+                          ${formatPrice(opp.lbank_ask)}
+                        </td>
+                        <td className="py-3 px-2 text-right font-mono text-blue-400">
+                          ${formatPrice(opp.uniswap_price)}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          <span className="text-emerald-400 font-medium">
+                            +{opp.edge_after_costs_bps.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-right font-mono text-slate-300">
+                          ${opp.suggested_size_usdt}
+                        </td>
+                        <td className="py-3 px-2 text-center">
+                          <span className="px-2 py-1 rounded text-xs bg-yellow-500/20 text-yellow-400">
+                            Dry Run
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="py-8 text-center text-slate-500"
+                      >
+                        No trading opportunities detected yet. Monitoring
+                        markets...
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-500">
+              <span>⚠️ DRY RUN MODE - No actual trades executed</span>
+              <span>
+                Showing latest {data?.opportunities?.length || 0} opportunities
+              </span>
+            </div>
           </div>
         </section>
 

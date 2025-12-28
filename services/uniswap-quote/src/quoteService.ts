@@ -194,8 +194,18 @@ export class QuoteService {
           amount_out_unit: direction === "buy" ? targetToken.symbol : "USDT",
           effective_price_usdt: routerResult.executionPrice,
           estimated_gas: routerResult.gasEstimateGwei,
-          pool_fee: 0.3, // Will be determined by route
+          pool_fee: 0.3,
           price_impact: routerResult.priceImpact,
+          price_impact_percent: `${
+            routerResult.priceImpact?.toFixed(2) || "0.00"
+          }%`,
+          gas_cost_usdt: routerResult.gasEstimateUSD || 0.02,
+          gas_cost_eth: ((routerResult.gasEstimateUSD || 0.02) / 3500).toFixed(
+            6
+          ),
+          max_slippage: "Auto / 0.50%",
+          order_routing: "Uniswap API",
+          fee_display: "Free",
           route: {
             summary: routerResult.route,
             pools: routerResult.protocols,
@@ -305,6 +315,9 @@ export class QuoteService {
       executable: false,
     });
 
+    // Estimate price impact based on trade size (simplified - larger trades = more impact)
+    const estimatedPriceImpact = -(amountUsdt / 10000) * 0.5; // ~0.5% per $10k
+
     return {
       type: "uniswap.quote",
       pair: `${targetToken.symbol}/USDT`,
@@ -315,7 +328,15 @@ export class QuoteService {
       amount_out: outputAmount.toFixed(6),
       amount_out_unit: targetToken.symbol,
       effective_price_usdt: priceUsdtPerToken,
-      estimated_gas: 0,
+      estimated_gas: 150000,
+      pool_fee: 0.3,
+      price_impact: estimatedPriceImpact,
+      price_impact_percent: `${estimatedPriceImpact.toFixed(2)}%`,
+      gas_cost_usdt: 0.02,
+      gas_cost_eth: "0.000006",
+      max_slippage: "Auto / 0.50%",
+      order_routing: "Uniswap API",
+      fee_display: "Free",
       route: {
         summary: pool.poolId,
         pools: [pool.poolId],

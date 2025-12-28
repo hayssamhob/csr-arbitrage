@@ -17,7 +17,13 @@ export const UniswapQuoteResultSchema = z.object({
   effective_price_usdt: z.number(),
   estimated_gas: z.number(),
   pool_fee: z.number().optional(), // Pool fee in percentage (e.g., 0.3 for 0.3%)
-  price_impact: z.number().optional(), // Price impact in percentage
+  price_impact: z.number().optional(), // Price impact in percentage (negative = slippage)
+  price_impact_percent: z.string().optional(), // Price impact as display string (e.g., "-1.26%")
+  gas_cost_usdt: z.number().optional(), // Gas cost in USDT
+  gas_cost_eth: z.string().optional(), // Gas cost in ETH
+  max_slippage: z.string().optional(), // Max slippage setting (e.g., "Auto / 0.50%")
+  order_routing: z.string().optional(), // Order routing info (e.g., "Uniswap API")
+  fee_display: z.string().optional(), // Fee display (e.g., "Free" or "0.3%")
   route: z
     .object({
       summary: z.string(),
