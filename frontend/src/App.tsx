@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AdvancedMetricsCard } from "./components/AdvancedMetricsCard";
+import { AlignmentDisplay } from "./components/AlignmentDisplay";
 import {
   GlobalStatusBar,
   type ServiceStatus,
@@ -17,7 +18,6 @@ import { MarketContextCard } from "./components/MarketContextCard";
 import { UniswapTradePanel } from "./components/UniswapTradePanel";
 import { useWallet } from "./hooks/useWallet";
 import type { DexQuote } from "./lib/alignmentEngine";
-import type { AlignmentDisplay } from "./components/AlignmentDisplay";
 
 // Freshness thresholds per product spec v1.0
 const FRESHNESS = {
