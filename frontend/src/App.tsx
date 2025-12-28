@@ -483,220 +483,228 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 text-white p-6">
-      {/* Header */}
-      <header className="mb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img
-              src="/depollute-logo-256.png"
-              alt="Depollute Now!"
-              className="h-16 w-16 rounded-lg shadow-lg shadow-emerald-500/20"
-            />
-            <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-green-300 bg-clip-text text-transparent">
-                CSR Arbitrage Monitor
-              </h1>
-              <p className="text-slate-400 mt-1">
-                Real-time arbitrage opportunity detection
-              </p>
-            </div>
-          </div>
-          <div className="text-right bg-slate-800/50 rounded-lg p-3 border border-slate-700">
-            <div className="text-sm text-slate-400">Last Update</div>
-            <div className="text-lg font-mono text-emerald-400">
-              {timeAgo(lastUpdate.toISOString())}
-            </div>
-            {error && <div className="text-red-400 text-sm mt-1">{error}</div>}
-          </div>
-        </div>
-      </header>
-
-      {/* System Status Bar */}
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4 text-emerald-400">
-          System Status
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-          <div className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-sm">Overall</span>
-              <StatusBadge
-                status={data?.system_status.overall_status || "unknown"}
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <header className="mb-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <img
+                src="/depollute-logo-256.png"
+                alt="Depollute Now!"
+                className="h-16 w-16 rounded-lg shadow-lg shadow-emerald-500/20"
               />
-            </div>
-          </div>
-          <a
-            href="https://www.lbank.com/trade/csr25_usdt"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-sm">LBank ↗</span>
-              <StatusBadge
-                status={data?.system_status.lbank_gateway?.status || "unknown"}
-              />
-            </div>
-          </a>
-          <a
-            href="https://latoken.com/exchange/CSR_USDT"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-sm">LATOKEN ↗</span>
-              <StatusBadge
-                status={
-                  data?.system_status.latoken_gateway?.status || "unknown"
-                }
-              />
-            </div>
-          </a>
-          <a
-            href="https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-sm">Uniswap CSR ↗</span>
-              <StatusBadge
-                status={
-                  data?.system_status.uniswap_quote_csr?.status || "unknown"
-                }
-              />
-            </div>
-          </a>
-          <a
-            href="https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-sm">Uniswap CSR25 ↗</span>
-              <StatusBadge
-                status={
-                  data?.system_status.uniswap_quote_csr25?.status || "unknown"
-                }
-              />
-            </div>
-          </a>
-          <div className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-sm">Strategy</span>
-              <StatusBadge
-                status={
-                  data?.system_status.strategy_engine?.status || "unknown"
-                }
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Execution Mode Banner */}
-      <section className="mb-8">
-        <div className="bg-gradient-to-r from-slate-800/80 to-emerald-900/30 border border-emerald-500/30 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <span className="text-slate-400">Execution Mode:</span>
-            <span className="px-3 py-1 bg-blue-600/80 text-white rounded-full font-bold text-sm">
-              OFF
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-slate-400">Kill Switch:</span>
-            <span className="px-3 py-1 bg-emerald-600/80 text-white rounded-full font-bold text-sm animate-pulse">
-              ACTIVE
-            </span>
-          </div>
-          <div className="text-sm text-emerald-400/70 font-medium">
-            🛡️ DRY RUN MODE - No trades executed
-          </div>
-        </div>
-      </section>
-
-      {/* Opportunities */}
-      {data?.opportunities && data.opportunities.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xl font-semibold mb-4 text-emerald-400 flex items-center gap-2">
-            <span className="animate-pulse">🎯</span> Active Opportunities
-          </h2>
-          <div className="space-y-3">
-            {data.opportunities.map((opp, i) => (
-              <div
-                key={i}
-                className="bg-gradient-to-r from-emerald-900/40 to-green-900/20 border border-emerald-500/50 rounded-lg p-4 shadow-lg shadow-emerald-500/10"
-              >
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-emerald-400 text-lg">
-                      {opp.symbol.toUpperCase()}
-                    </span>
-                    <span className="px-2 py-1 bg-slate-700/50 rounded text-slate-300 text-sm">
-                      {opp.direction}
-                    </span>
-                  </div>
-                  <div className="text-right flex items-center gap-4">
-                    <span className="text-emerald-400 font-bold text-lg">
-                      +{opp.edge_after_costs_bps.toFixed(1)} bps
-                    </span>
-                    <span className="text-slate-400 bg-slate-800/50 px-2 py-1 rounded">
-                      ${opp.suggested_size_usdt}
-                    </span>
-                  </div>
-                </div>
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-green-300 bg-clip-text text-transparent">
+                  CSR Arbitrage Monitor
+                </h1>
+                <p className="text-slate-400 mt-1">
+                  Real-time arbitrage opportunity detection
+                </p>
               </div>
-            ))}
+            </div>
+            <div className="text-right bg-slate-800/50 rounded-lg p-3 border border-slate-700">
+              <div className="text-sm text-slate-400">Last Update</div>
+              <div className="text-lg font-mono text-emerald-400">
+                {timeAgo(lastUpdate.toISOString())}
+              </div>
+              {error && (
+                <div className="text-red-400 text-sm mt-1">{error}</div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* System Status Bar */}
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-4 text-emerald-400">
+            System Status
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Overall</span>
+                <StatusBadge
+                  status={data?.system_status.overall_status || "unknown"}
+                />
+              </div>
+            </div>
+            <a
+              href="https://www.lbank.com/trade/csr25_usdt"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">LBank ↗</span>
+                <StatusBadge
+                  status={
+                    data?.system_status.lbank_gateway?.status || "unknown"
+                  }
+                />
+              </div>
+            </a>
+            <a
+              href="https://latoken.com/exchange/CSR_USDT"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">LATOKEN ↗</span>
+                <StatusBadge
+                  status={
+                    data?.system_status.latoken_gateway?.status || "unknown"
+                  }
+                />
+              </div>
+            </a>
+            <a
+              href="https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Uniswap CSR ↗</span>
+                <StatusBadge
+                  status={
+                    data?.system_status.uniswap_quote_csr?.status || "unknown"
+                  }
+                />
+              </div>
+            </a>
+            <a
+              href="https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Uniswap CSR25 ↗</span>
+                <StatusBadge
+                  status={
+                    data?.system_status.uniswap_quote_csr25?.status || "unknown"
+                  }
+                />
+              </div>
+            </a>
+            <div className="bg-slate-800/70 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Strategy</span>
+                <StatusBadge
+                  status={
+                    data?.system_status.strategy_engine?.status || "unknown"
+                  }
+                />
+              </div>
+            </div>
           </div>
         </section>
-      )}
 
-      {/* Main Market Cards - Side by Side */}
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4 text-emerald-400">Markets</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <MarketCard
-            title="CSR / USDT"
-            market={
-              data?.market_state?.csr_usdt || {
-                lbank_ticker: undefined,
-                uniswap_quote: undefined,
-                decision: undefined,
-              }
-            }
-            lbankHealth={data?.system_status.lbank_gateway}
-          />
-          <MarketCard
-            title="CSR25 / USDT"
-            market={
-              data?.market_state?.csr25_usdt || {
-                lbank_ticker: undefined,
-                uniswap_quote: undefined,
-                decision: undefined,
-              }
-            }
-            lbankHealth={data?.system_status.lbank_gateway}
-          />
-        </div>
-      </section>
+        {/* Execution Mode Banner */}
+        <section className="mb-8">
+          <div className="bg-gradient-to-r from-slate-800/80 to-emerald-900/30 border border-emerald-500/30 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <span className="text-slate-400">Execution Mode:</span>
+              <span className="px-3 py-1 bg-blue-600/80 text-white rounded-full font-bold text-sm">
+                OFF
+              </span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-slate-400">Kill Switch:</span>
+              <span className="px-3 py-1 bg-emerald-600/80 text-white rounded-full font-bold text-sm animate-pulse">
+                ACTIVE
+              </span>
+            </div>
+            <div className="text-sm text-emerald-400/70 font-medium">
+              🛡️ DRY RUN MODE - No trades executed
+            </div>
+          </div>
+        </section>
 
-      {/* Footer */}
-      <footer className="text-center text-slate-500 text-sm mt-12 pb-4">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <img
-            src="/depollute-logo-256.png"
-            alt="Depollute"
-            className="h-6 w-6 opacity-50"
-          />
-          <span className="text-emerald-400/50">Depollute Now!</span>
-        </div>
-        <p>CSR Arbitrage Monitor - Dry-Run Mode</p>
-        <p className="mt-1 text-slate-600">
-          Data refreshes automatically via WebSocket
-        </p>
-      </footer>
+        {/* Opportunities */}
+        {data?.opportunities && data.opportunities.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-xl font-semibold mb-4 text-emerald-400 flex items-center gap-2">
+              <span className="animate-pulse">🎯</span> Active Opportunities
+            </h2>
+            <div className="space-y-3">
+              {data.opportunities.map((opp, i) => (
+                <div
+                  key={i}
+                  className="bg-gradient-to-r from-emerald-900/40 to-green-900/20 border border-emerald-500/50 rounded-lg p-4 shadow-lg shadow-emerald-500/10"
+                >
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-emerald-400 text-lg">
+                        {opp.symbol.toUpperCase()}
+                      </span>
+                      <span className="px-2 py-1 bg-slate-700/50 rounded text-slate-300 text-sm">
+                        {opp.direction}
+                      </span>
+                    </div>
+                    <div className="text-right flex items-center gap-4">
+                      <span className="text-emerald-400 font-bold text-lg">
+                        +{opp.edge_after_costs_bps.toFixed(1)} bps
+                      </span>
+                      <span className="text-slate-400 bg-slate-800/50 px-2 py-1 rounded">
+                        ${opp.suggested_size_usdt}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Main Market Cards - Side by Side */}
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-4 text-emerald-400">
+            Markets
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <MarketCard
+              title="CSR / USDT"
+              market={
+                data?.market_state?.csr_usdt || {
+                  lbank_ticker: undefined,
+                  uniswap_quote: undefined,
+                  decision: undefined,
+                }
+              }
+              lbankHealth={data?.system_status.lbank_gateway}
+            />
+            <MarketCard
+              title="CSR25 / USDT"
+              market={
+                data?.market_state?.csr25_usdt || {
+                  lbank_ticker: undefined,
+                  uniswap_quote: undefined,
+                  decision: undefined,
+                }
+              }
+              lbankHealth={data?.system_status.lbank_gateway}
+            />
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="text-center text-slate-500 text-sm mt-12 pb-4">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <img
+              src="/depollute-logo-256.png"
+              alt="Depollute"
+              className="h-6 w-6 opacity-50"
+            />
+            <span className="text-emerald-400/50">Depollute Now!</span>
+          </div>
+          <p>CSR Arbitrage Monitor - Dry-Run Mode</p>
+          <p className="mt-1 text-slate-600">
+            Data refreshes automatically via WebSocket
+          </p>
+        </footer>
+      </div>
     </div>
   );
 }
