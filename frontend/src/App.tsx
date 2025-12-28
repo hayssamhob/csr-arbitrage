@@ -7,14 +7,23 @@
  * v2.0 - Complete UI Redesign per Product Spec
  */
 
-import { useEffect, useState, useMemo } from "react";
-import { UniswapTradePanel } from "./components/UniswapTradePanel";
-import { PriceAlignmentCard } from "./components/PriceAlignmentCard";
-import { MarketContextCard } from "./components/MarketContextCard";
+import { useEffect, useMemo, useState } from "react";
 import { AdvancedMetricsCard } from "./components/AdvancedMetricsCard";
-import { GlobalStatusBar } from "./components/GlobalStatusBar";
+import {
+  GlobalStatusBar,
+  type ServiceStatus,
+} from "./components/GlobalStatusBar";
+import { MarketContextCard } from "./components/MarketContextCard";
+import { PriceAlignmentCard } from "./components/PriceAlignmentCard";
+import { UniswapTradePanel } from "./components/UniswapTradePanel";
 import { useWallet } from "./hooks/useWallet";
 import type { DexQuote } from "./lib/alignmentEngine";
+
+// Freshness thresholds per product spec v1.0
+const FRESHNESS = {
+  CEX_STALE_SEC: 30, // CEX data stale after 30s
+  DEX_STALE_SEC: 60, // DEX data stale after 60s
+};
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -158,15 +167,17 @@ function App() {
     token: "CSR" | "CSR25";
     direction: "buy" | "sell";
   } | null>(null);
-  const [executionMode, setExecutionMode] = useState<"OFF" | "MANUAL" | "AUTO">("OFF");
+  const [executionMode, setExecutionMode] = useState<"OFF" | "MANUAL" | "AUTO">(
+    "OFF"
+  );
   const [killSwitchActive, setKillSwitchActive] = useState(false);
 
   // Convert scraper quotes to DexQuote format
   const csrDexQuotes: DexQuote[] = useMemo(() => {
     if (!scraperData?.quotes) return [];
     return scraperData.quotes
-      .filter(q => q.market === "CSR_USDT" && q.valid)
-      .map(q => ({
+      .filter((q) => q.market === "CSR_USDT" && q.valid)
+      .map((q) => ({
         amountInUSDT: q.amountInUSDT,
         tokensOut: q.amountOutToken,
         executionPrice: q.price_usdt_per_token,
@@ -180,8 +191,8 @@ function App() {
   const csr25DexQuotes: DexQuote[] = useMemo(() => {
     if (!scraperData?.quotes) return [];
     return scraperData.quotes
-      .filter(q => q.market === "CSR25_USDT" && q.valid)
-      .map(q => ({
+      .filter((q) => q.market === "CSR25_USDT" && q.valid)
+      .map((q) => ({
         amountInUSDT: q.amountInUSDT,
         tokensOut: q.amountOutToken,
         executionPrice: q.price_usdt_per_token,
@@ -192,28 +203,148 @@ function App() {
       }));
   }, [scraperData]);
 
-  const services = useMemo(() => [
-    {
-      name: "LBank",
-      status: (data?.system_status?.lbank_gateway?.status === "ok" ? "ok" : "error") as "ok" | "warning" | "error" | "offline",
-      lastUpdate: data?.system_status?.lbank_gateway?.ts || "—",
-    },
-    {
-      name: "LATOKEN",
-      status: (data?.system_status?.latoken_gateway?.status === "ok" ? "ok" : "error") as "ok" | "warning" | "error" | "offline",
-      lastUpdate: data?.system_status?.latoken_gateway?.ts || "—",
-    },
-    {
-      name: "Uniswap",
-      status: (scraperData?.meta?.errorsLast5m === 0 ? "ok" : "warning") as "ok" | "warning" | "error" | "offline",
-      lastUpdate: scraperData?.meta?.lastSuccessTs ? new Date(scraperData.meta.lastSuccessTs).toISOString() : "—",
-    },
-    {
-      name: "Strategy",
-      status: (data?.system_status?.strategy_engine?.status === "ok" ? "ok" : "warning") as "ok" | "warning" | "error" | "offline",
-      lastUpdate: data?.system_status?.strategy_engine?.ts || "—",
-    },
-  ], [data, scraperData]);
+  // Compute service status with freshness, age, and explicit reasons
+  const services: ServiceStatus[] = useMemo(() => {
+    const now = Date.now();
+
+    // Helper to compute age in seconds
+    const getAge = (ts: string | number | null | undefined): number => {
+      if (!ts) return 999;
+      const then = typeof ts === "number" ? ts : new Date(ts).getTime();
+      return Math.floor((now - then) / 1000);
+    };
+
+    // LBank (CEX for CSR25) - 30s freshness threshold
+    const lbankTs = data?.system_status?.lbank_gateway?.ts;
+    const lbankAge = getAge(lbankTs);
+    const lbankStale = lbankAge > FRESHNESS.CEX_STALE_SEC;
+    const lbankStatus = data?.system_status?.lbank_gateway?.status;
+    const lbankReason = !lbankStatus
+      ? "no data"
+      : lbankStatus !== "ok"
+      ? data?.system_status?.lbank_gateway?.subscription_errors?.[
+          "csr25_usdt"
+        ] || "connection error"
+      : lbankStale
+      ? `stale (${lbankAge}s > ${FRESHNESS.CEX_STALE_SEC}s)`
+      : undefined;
+
+    // LATOKEN (CEX for CSR) - 30s freshness threshold
+    const latokenTs = data?.system_status?.latoken_gateway?.ts;
+    const latokenAge = getAge(latokenTs);
+    const latokenStale = latokenAge > FRESHNESS.CEX_STALE_SEC;
+    const latokenStatus = data?.system_status?.latoken_gateway?.status;
+    const latokenReason = !latokenStatus
+      ? "no data"
+      : latokenStatus !== "ok"
+      ? "connection error"
+      : latokenStale
+      ? `stale (${latokenAge}s > ${FRESHNESS.CEX_STALE_SEC}s)`
+      : undefined;
+
+    // Uniswap scraper (DEX) - 60s freshness threshold
+    const uniswapTs = scraperData?.meta?.lastSuccessTs;
+    const uniswapAge = getAge(uniswapTs);
+    const uniswapStale = uniswapAge > FRESHNESS.DEX_STALE_SEC;
+    const uniswapErrors = scraperData?.meta?.errorsLast5m || 0;
+    const csrQuotes =
+      scraperData?.quotes?.filter((q) => q.market === "CSR_USDT" && q.valid)
+        .length || 0;
+    const csr25Quotes =
+      scraperData?.quotes?.filter((q) => q.market === "CSR25_USDT" && q.valid)
+        .length || 0;
+    const uniswapReason = !uniswapTs
+      ? "no scraper data"
+      : uniswapStale
+      ? `stale (${uniswapAge}s > ${FRESHNESS.DEX_STALE_SEC}s)`
+      : csrQuotes === 0
+      ? "CSR quotes missing"
+      : csr25Quotes === 0
+      ? "CSR25 quotes missing"
+      : uniswapErrors > 0
+      ? `${uniswapErrors} errors in 5m`
+      : undefined;
+
+    // Strategy engine
+    const strategyTs = data?.system_status?.strategy_engine?.ts;
+    const strategyAge = getAge(strategyTs);
+    const strategyStatus = data?.system_status?.strategy_engine?.status;
+
+    return [
+      {
+        name: "LBank",
+        status: (!lbankStatus
+          ? "offline"
+          : lbankStatus === "ok" && !lbankStale
+          ? "ok"
+          : lbankStale
+          ? "warning"
+          : "error") as ServiceStatus["status"],
+        lastUpdate: lbankTs || "—",
+        ageSeconds: lbankAge < 999 ? lbankAge : undefined,
+        isStale: lbankStale,
+        reason: lbankReason,
+      },
+      {
+        name: "LATOKEN",
+        status: (!latokenStatus
+          ? "offline"
+          : latokenStatus === "ok" && !latokenStale
+          ? "ok"
+          : latokenStale
+          ? "warning"
+          : "error") as ServiceStatus["status"],
+        lastUpdate: latokenTs || "—",
+        ageSeconds: latokenAge < 999 ? latokenAge : undefined,
+        isStale: latokenStale,
+        reason: latokenReason,
+      },
+      {
+        name: "DEX CSR",
+        status: (csrQuotes > 0 && !uniswapStale
+          ? "ok"
+          : csrQuotes === 0
+          ? "error"
+          : "warning") as ServiceStatus["status"],
+        lastUpdate: uniswapTs ? new Date(uniswapTs).toISOString() : "—",
+        ageSeconds: uniswapAge < 999 ? uniswapAge : undefined,
+        isStale: uniswapStale || csrQuotes === 0,
+        reason:
+          csrQuotes === 0
+            ? "no CSR quotes (scraper issue)"
+            : uniswapStale
+            ? `stale`
+            : undefined,
+      },
+      {
+        name: "DEX CSR25",
+        status: (csr25Quotes > 0 && !uniswapStale
+          ? "ok"
+          : csr25Quotes === 0
+          ? "error"
+          : "warning") as ServiceStatus["status"],
+        lastUpdate: uniswapTs ? new Date(uniswapTs).toISOString() : "—",
+        ageSeconds: uniswapAge < 999 ? uniswapAge : undefined,
+        isStale: uniswapStale || csr25Quotes === 0,
+        reason:
+          csr25Quotes === 0
+            ? "no CSR25 quotes"
+            : uniswapStale
+            ? `stale`
+            : undefined,
+      },
+      {
+        name: "Strategy",
+        status: (strategyStatus === "ok"
+          ? "ok"
+          : "warning") as ServiceStatus["status"],
+        lastUpdate: strategyTs || "—",
+        ageSeconds: strategyAge < 999 ? strategyAge : undefined,
+        isStale: false,
+        reason: strategyStatus !== "ok" ? "not running" : undefined,
+      },
+    ];
+  }, [data, scraperData]);
 
   const handleAlignmentExecute = (direction: string, _tokenAmount: number) => {
     const isBuy = direction === "BUY_ON_DEX";
@@ -305,7 +436,9 @@ function App() {
       };
     }
     connect();
-    return () => { ws?.close(); };
+    return () => {
+      ws?.close();
+    };
   }, []);
 
   // Polling fallback
@@ -355,8 +488,10 @@ function App() {
               direction={showTradePanel.direction}
               dexPrice={
                 showTradePanel.token === "CSR"
-                  ? data.market_state?.csr_usdt?.uniswap_quote?.effective_price_usdt || 0
-                  : data.market_state?.csr25_usdt?.uniswap_quote?.effective_price_usdt || 0
+                  ? data.market_state?.csr_usdt?.uniswap_quote
+                      ?.effective_price_usdt || 0
+                  : data.market_state?.csr25_usdt?.uniswap_quote
+                      ?.effective_price_usdt || 0
               }
               cexPrice={
                 showTradePanel.token === "CSR"
@@ -452,60 +587,87 @@ function App() {
 
         {/* SECONDARY: Market Context (Collapsed) */}
         <section className="mb-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-3">Market Context</h3>
+          <h3 className="text-sm font-medium text-slate-400 mb-3">
+            Market Context
+          </h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <MarketContextCard
               token="CSR"
-              cexData={data?.market_state?.csr_usdt?.latoken_ticker ? {
-                bid: data.market_state.csr_usdt.latoken_ticker.bid,
-                ask: data.market_state.csr_usdt.latoken_ticker.ask,
-                last: data.market_state.csr_usdt.latoken_ticker.last,
-                volume24h: data.market_state.csr_usdt.latoken_ticker.volume_24h || 0,
-                source: "LATOKEN",
-                timestamp: timeAgo(data.market_state.csr_usdt.latoken_ticker.ts),
-              } : null}
-              dexData={csrDexQuotes.length > 0 ? {
-                executionPrice: csrDexQuotes[0].executionPrice,
-                gasEstimateUsdt: csrDexQuotes[0].gasEstimateUsdt,
-                slippagePercent: csrDexQuotes[0].slippagePercent,
-                quoteSize: csrDexQuotes[0].amountInUSDT,
-                route: "Uniswap V3",
-                source: "UI Scrape",
-                timestamp: "live",
-              } : null}
+              cexData={
+                data?.market_state?.csr_usdt?.latoken_ticker
+                  ? {
+                      bid: data.market_state.csr_usdt.latoken_ticker.bid,
+                      ask: data.market_state.csr_usdt.latoken_ticker.ask,
+                      last: data.market_state.csr_usdt.latoken_ticker.last,
+                      volume24h:
+                        data.market_state.csr_usdt.latoken_ticker.volume_24h ||
+                        0,
+                      source: "LATOKEN",
+                      timestamp: timeAgo(
+                        data.market_state.csr_usdt.latoken_ticker.ts
+                      ),
+                    }
+                  : null
+              }
+              dexData={
+                csrDexQuotes.length > 0
+                  ? {
+                      executionPrice: csrDexQuotes[0].executionPrice,
+                      gasEstimateUsdt: csrDexQuotes[0].gasEstimateUsdt,
+                      slippagePercent: csrDexQuotes[0].slippagePercent,
+                      quoteSize: csrDexQuotes[0].amountInUSDT,
+                      route: "Uniswap V3",
+                      source: "UI Scrape",
+                      timestamp: "live",
+                    }
+                  : null
+              }
             />
             <MarketContextCard
               token="CSR25"
-              cexData={data?.market_state?.csr25_usdt?.lbank_ticker ? {
-                bid: data.market_state.csr25_usdt.lbank_ticker.bid,
-                ask: data.market_state.csr25_usdt.lbank_ticker.ask,
-                last: data.market_state.csr25_usdt.lbank_ticker.last,
-                volume24h: data.market_state.csr25_usdt.lbank_ticker.volume_24h,
-                source: "LBANK",
-                timestamp: timeAgo(data.market_state.csr25_usdt.lbank_ticker.ts),
-              } : null}
-              dexData={csr25DexQuotes.length > 0 ? {
-                executionPrice: csr25DexQuotes[0].executionPrice,
-                gasEstimateUsdt: csr25DexQuotes[0].gasEstimateUsdt,
-                slippagePercent: csr25DexQuotes[0].slippagePercent,
-                quoteSize: csr25DexQuotes[0].amountInUSDT,
-                route: "Uniswap V3",
-                source: "UI Scrape",
-                timestamp: "live",
-              } : null}
+              cexData={
+                data?.market_state?.csr25_usdt?.lbank_ticker
+                  ? {
+                      bid: data.market_state.csr25_usdt.lbank_ticker.bid,
+                      ask: data.market_state.csr25_usdt.lbank_ticker.ask,
+                      last: data.market_state.csr25_usdt.lbank_ticker.last,
+                      volume24h:
+                        data.market_state.csr25_usdt.lbank_ticker.volume_24h,
+                      source: "LBANK",
+                      timestamp: timeAgo(
+                        data.market_state.csr25_usdt.lbank_ticker.ts
+                      ),
+                    }
+                  : null
+              }
+              dexData={
+                csr25DexQuotes.length > 0
+                  ? {
+                      executionPrice: csr25DexQuotes[0].executionPrice,
+                      gasEstimateUsdt: csr25DexQuotes[0].gasEstimateUsdt,
+                      slippagePercent: csr25DexQuotes[0].slippagePercent,
+                      quoteSize: csr25DexQuotes[0].amountInUSDT,
+                      route: "Uniswap V3",
+                      source: "UI Scrape",
+                      timestamp: "live",
+                    }
+                  : null
+              }
             />
           </div>
         </section>
 
         {/* ADVANCED: Arbitrage Metrics (Collapsed) */}
         <section className="mb-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-3">Advanced Analytics</h3>
+          <h3 className="text-sm font-medium text-slate-400 mb-3">
+            Advanced Analytics
+          </h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <AdvancedMetricsCard
               token="CSR"
               cexPrice={data?.market_state?.csr_usdt?.latoken_ticker?.bid || 0}
               dexPrice={csrDexQuotes[0]?.executionPrice || 0}
-              spreadHistory={priceHistory.csr_usdt.map(p => ({
+              spreadHistory={priceHistory.csr_usdt.map((p) => ({
                 timestamp: new Date(p.ts).getTime(),
                 spreadBps: p.spread_bps,
               }))}
@@ -515,7 +677,7 @@ function App() {
               token="CSR25"
               cexPrice={data?.market_state?.csr25_usdt?.lbank_ticker?.bid || 0}
               dexPrice={csr25DexQuotes[0]?.executionPrice || 0}
-              spreadHistory={priceHistory.csr25_usdt.map(p => ({
+              spreadHistory={priceHistory.csr25_usdt.map((p) => ({
                 timestamp: new Date(p.ts).getTime(),
                 spreadBps: p.spread_bps,
               }))}
@@ -527,10 +689,17 @@ function App() {
         {/* Footer */}
         <footer className="text-center text-slate-600 text-xs mt-8 pb-4 border-t border-slate-800 pt-4">
           <div className="flex items-center justify-center gap-2 mb-1">
-            <img src="/depollute-logo-256.png" alt="Depollute" className="h-4 w-4 opacity-40" />
+            <img
+              src="/depollute-logo-256.png"
+              alt="Depollute"
+              className="h-4 w-4 opacity-40"
+            />
             <span>Depollute Now! DEX Price Defense Platform</span>
           </div>
-          <p>Data refreshes automatically • {killSwitchActive ? "🛑 Kill Switch Active" : "🛡️ System Protected"}</p>
+          <p>
+            Data refreshes automatically •{" "}
+            {killSwitchActive ? "🛑 Kill Switch Active" : "🛡️ System Protected"}
+          </p>
         </footer>
       </div>
     </div>

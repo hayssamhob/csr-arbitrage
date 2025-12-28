@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { useEffect, useState } from 'react';
+import { parseBlockchainError } from "../lib/errorParser";
 
 // Token addresses on Ethereum mainnet
 const USDT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
@@ -37,66 +38,96 @@ export function UniswapTradePanel({
 }: UniswapTradePanelProps) {
   const [amount, setAmount] = useState('100');
   const [balance, setBalance] = useState<string | null>(null);
+  const [allowance, setAllowance] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<{
+    title: string;
+    message: string;
+    suggestion?: string;
+  } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const tokenAddress = token === 'CSR' ? CSR_ADDRESS : CSR25_ADDRESS;
-  const inputToken = direction === 'buy' ? 'USDT' : token;
-  const outputToken = direction === 'buy' ? token : 'USDT';
-  
+  const tokenAddress = token === "CSR" ? CSR_ADDRESS : CSR25_ADDRESS;
+  const inputToken = direction === "buy" ? "USDT" : token;
+  const outputToken = direction === "buy" ? token : "USDT";
+
   // Calculate estimated output
-  const estimatedOutput = direction === 'buy' 
-    ? (parseFloat(amount) / dexPrice).toFixed(2)
-    : (parseFloat(amount) * dexPrice).toFixed(4);
+  const estimatedOutput =
+    direction === "buy"
+      ? (parseFloat(amount) / dexPrice).toFixed(2)
+      : (parseFloat(amount) * dexPrice).toFixed(4);
 
   // Calculate arbitrage edge
-  const spread = ((dexPrice - cexPrice) / cexPrice * 100).toFixed(2);
+  const spread = (((dexPrice - cexPrice) / cexPrice) * 100).toFixed(2);
 
-  // Load balance when wallet connected
+  // Load balance and allowance when wallet connected
   useEffect(() => {
-    async function loadBalance() {
+    async function loadWalletData() {
       if (!signer) return;
       try {
         const address = await signer.getAddress();
-        const inputAddress = direction === 'buy' ? USDT_ADDRESS : tokenAddress;
+        const inputAddress = direction === "buy" ? USDT_ADDRESS : tokenAddress;
         const contract = new ethers.Contract(inputAddress, ERC20_ABI, signer);
+        const decimals = direction === "buy" ? 6 : 18;
+
+        // Load balance
         const bal = await contract.balanceOf(address);
-        const decimals = direction === 'buy' ? 6 : 18;
         setBalance(ethers.utils.formatUnits(bal, decimals));
+
+        // Load allowance
+        const allow = await contract.allowance(address, SWAP_ROUTER_ADDRESS);
+        setAllowance(ethers.utils.formatUnits(allow, decimals));
       } catch (err) {
-        console.error('Failed to load balance:', err);
+        console.error("Failed to load wallet data:", err);
       }
     }
-    loadBalance();
+    loadWalletData();
   }, [signer, direction, tokenAddress]);
+
+  // Check if approval is needed
+  const needsApproval =
+    allowance !== null && parseFloat(allowance) < parseFloat(amount || "0");
 
   // Build Uniswap URL with pre-filled parameters
   const buildUniswapUrl = () => {
-    const inputAddress = direction === 'buy' ? USDT_ADDRESS : tokenAddress;
-    const outputAddress = direction === 'buy' ? tokenAddress : USDT_ADDRESS;
-    
+    const inputAddress = direction === "buy" ? USDT_ADDRESS : tokenAddress;
+    const outputAddress = direction === "buy" ? tokenAddress : USDT_ADDRESS;
+
     // Use Uniswap's swap interface with pre-filled tokens
     return `https://app.uniswap.org/swap?inputCurrency=${inputAddress}&outputCurrency=${outputAddress}&exactAmount=${amount}&exactField=input`;
   };
 
-  // Handle approve token
-  const handleApprove = async () => {
+  // Handle approve token - with friendly error handling
+  const handleApprove = async (approveMax: boolean = false) => {
     if (!signer) return;
     setLoading(true);
-    setStatus('Approving token...');
-    
+    setError(null);
+    setStatus("Approving token...");
+
     try {
-      const inputAddress = direction === 'buy' ? USDT_ADDRESS : tokenAddress;
-      const decimals = direction === 'buy' ? 6 : 18;
+      const inputAddress = direction === "buy" ? USDT_ADDRESS : tokenAddress;
+      const decimals = direction === "buy" ? 6 : 18;
       const contract = new ethers.Contract(inputAddress, ERC20_ABI, signer);
-      
-      const amountWei = ethers.utils.parseUnits(amount, decimals);
+
+      // Approve exact amount or max (2^256 - 1)
+      const amountWei = approveMax
+        ? ethers.constants.MaxUint256
+        : ethers.utils.parseUnits(amount, decimals);
+
       const tx = await contract.approve(SWAP_ROUTER_ADDRESS, amountWei);
-      setStatus('Waiting for confirmation...');
+      setStatus("Waiting for confirmation...");
       await tx.wait();
-      setStatus('Approved! You can now execute the swap on Uniswap.');
+
+      // Refresh allowance
+      const address = await signer.getAddress();
+      const newAllow = await contract.allowance(address, SWAP_ROUTER_ADDRESS);
+      setAllowance(ethers.utils.formatUnits(newAllow, decimals));
+
+      setStatus("✓ Approved! You can now execute the swap.");
     } catch (err) {
-      setStatus(`Error: ${err instanceof Error ? err.message : 'Approval failed'}`);
+      const parsed = parseBlockchainError(err);
+      setError(parsed);
+      setStatus(null);
     } finally {
       setLoading(false);
     }
@@ -105,7 +136,7 @@ export function UniswapTradePanel({
   return (
     <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
       <h3 className="text-lg font-semibold text-white mb-3">
-        {direction === 'buy' ? '🟢 Buy' : '🔴 Sell'} {token} on Uniswap
+        {direction === "buy" ? "🟢 Buy" : "🔴 Sell"} {token} on Uniswap
       </h3>
 
       {/* Price Info */}
@@ -120,7 +151,11 @@ export function UniswapTradePanel({
         </div>
         <div className="col-span-2 bg-gray-900 p-2 rounded">
           <span className="text-gray-400">Spread:</span>
-          <span className={`ml-2 ${parseFloat(spread) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <span
+            className={`ml-2 ${
+              parseFloat(spread) > 0 ? "text-green-400" : "text-red-400"
+            }`}
+          >
             {spread}%
           </span>
         </div>
@@ -176,27 +211,72 @@ export function UniswapTradePanel({
         </button>
       ) : (
         <div className="space-y-2">
-          <button
-            onClick={handleApprove}
-            disabled={loading}
-            className="w-full bg-yellow-600 hover:bg-yellow-500 text-white py-2 rounded-lg font-semibold disabled:opacity-50"
-          >
-            {loading ? 'Processing...' : `1. Approve ${inputToken}`}
-          </button>
-          
+          {/* Only show approval if needed */}
+          {needsApproval ? (
+            <>
+              <div className="text-xs text-yellow-400 mb-2">
+                ⚠️ Approval required: Current allowance is{" "}
+                {parseFloat(allowance || "0").toFixed(2)} {inputToken}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleApprove(false)}
+                  disabled={loading}
+                  className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white py-2 rounded-lg font-semibold disabled:opacity-50 text-sm"
+                >
+                  {loading
+                    ? "Processing..."
+                    : `Approve ${amount} ${inputToken}`}
+                </button>
+                <button
+                  onClick={() => handleApprove(true)}
+                  disabled={loading}
+                  className="bg-yellow-700 hover:bg-yellow-600 text-white py-2 px-3 rounded-lg font-semibold disabled:opacity-50 text-sm"
+                  title="Approve unlimited amount (saves gas on future trades)"
+                >
+                  Max
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-emerald-400 mb-2">
+              ✓ Allowance sufficient ({parseFloat(allowance || "0").toFixed(2)}{" "}
+              {inputToken})
+            </div>
+          )}
+
           <a
             href={buildUniswapUrl()}
             target="_blank"
             rel="noopener noreferrer"
             className="block w-full bg-pink-600 hover:bg-pink-500 text-white py-3 rounded-lg font-semibold text-center"
           >
-            2. Execute on Uniswap ↗
+            {needsApproval ? "2. " : ""}Execute on Uniswap ↗
           </a>
         </div>
       )}
 
+      {/* Error Display - Friendly, not raw blobs */}
+      {error && (
+        <div className="mt-3 p-3 bg-red-900/30 border border-red-500/50 rounded-lg">
+          <div className="text-red-400 font-medium text-sm">{error.title}</div>
+          <div className="text-red-300 text-xs mt-1">{error.message}</div>
+          {error.suggestion && (
+            <div className="text-slate-400 text-xs mt-2 italic">
+              {error.suggestion}
+            </div>
+          )}
+          <button
+            onClick={() => setError(null)}
+            className="text-xs text-slate-500 hover:text-slate-300 mt-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Status */}
-      {status && (
+      {status && !error && (
         <div className="mt-3 p-2 bg-gray-900 rounded text-sm text-gray-300">
           {status}
         </div>
@@ -204,7 +284,9 @@ export function UniswapTradePanel({
 
       {/* Info */}
       <div className="mt-4 text-xs text-gray-500">
-        <p>• Clicking "Execute on Uniswap" opens the official Uniswap interface</p>
+        <p>
+          • Clicking "Execute on Uniswap" opens the official Uniswap interface
+        </p>
         <p>• You'll see the real quote with gas fees and price impact</p>
         <p>• The trade executes through your connected wallet</p>
       </div>
