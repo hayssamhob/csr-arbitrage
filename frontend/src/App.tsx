@@ -153,6 +153,81 @@ function timeAgo(ts: string): string {
   return `${Math.floor(diffMs / 3600000)}h ago`;
 }
 
+interface PricePoint {
+  ts: string;
+  cex_price: number;
+  dex_price: number;
+  spread_bps: number;
+}
+
+function MiniChart({
+  data,
+  height = 60,
+}: {
+  data: PricePoint[];
+  height?: number;
+}) {
+  if (data.length < 2) {
+    return (
+      <div className="text-slate-500 text-xs text-center py-2">
+        Collecting data...
+      </div>
+    );
+  }
+
+  const spreads = data.map((p) => p.spread_bps);
+  const min = Math.min(...spreads);
+  const max = Math.max(...spreads);
+  const range = max - min || 1;
+
+  const width = 200;
+  const padding = 4;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+
+  const points = data
+    .map((p, i) => {
+      const x = padding + (i / (data.length - 1)) * chartWidth;
+      const y =
+        padding + chartHeight - ((p.spread_bps - min) / range) * chartHeight;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  const lastSpread = spreads[spreads.length - 1];
+  const color = lastSpread > 0 ? "#10b981" : "#ef4444";
+
+  return (
+    <div className="relative">
+      <svg width={width} height={height} className="w-full">
+        <polyline
+          points={points}
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <line
+          x1={padding}
+          y1={height / 2}
+          x2={width - padding}
+          y2={height / 2}
+          stroke="#374151"
+          strokeWidth="1"
+          strokeDasharray="2,2"
+        />
+      </svg>
+      <div className="absolute top-0 right-0 text-xs">
+        <span className={lastSpread > 0 ? "text-emerald-400" : "text-red-400"}>
+          {lastSpread > 0 ? "+" : ""}
+          {lastSpread.toFixed(0)} bps
+        </span>
+      </div>
+    </div>
+  );
+}
+
 interface CostBreakdown {
   cex_fee_bps: number;
   dex_lp_fee_bps: number;
@@ -170,10 +245,12 @@ function MarketCard({
   title,
   market,
   lbankHealth,
+  priceHistory,
 }: {
   title: string;
   market: MarketData;
   lbankHealth?: ServiceHealth;
+  priceHistory?: PricePoint[];
 }) {
   const lbank = market.lbank_ticker;
   const latoken = market.latoken_ticker;
@@ -411,6 +488,14 @@ function MarketCard({
         )}
       </div>
 
+      {/* Spread History Chart */}
+      {priceHistory && priceHistory.length > 0 && (
+        <div className="mb-4 p-4 bg-slate-900 rounded-lg">
+          <div className="text-slate-400 font-medium mb-2">Spread History</div>
+          <MiniChart data={priceHistory} height={50} />
+        </div>
+      )}
+
       {/* Decision Section */}
       <div className="p-4 bg-slate-900 rounded-lg">
         <div className="text-slate-400 font-medium mb-2">Decision</div>
@@ -452,10 +537,44 @@ function MarketCard({
   );
 }
 
+interface PriceHistoryState {
+  csr_usdt: PricePoint[];
+  csr25_usdt: PricePoint[];
+}
+
 function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [error, setError] = useState<string | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryState>({
+    csr_usdt: [],
+    csr25_usdt: [],
+  });
+
+  // Fetch price history periodically
+  useEffect(() => {
+    async function fetchHistory() {
+      try {
+        const [csrResp, csr25Resp] = await Promise.all([
+          fetch(`${API_URL}/api/history/csr_usdt`),
+          fetch(`${API_URL}/api/history/csr25_usdt`),
+        ]);
+        if (csrResp.ok && csr25Resp.ok) {
+          const csrData = await csrResp.json();
+          const csr25Data = await csr25Resp.json();
+          setPriceHistory({
+            csr_usdt: csrData.points || [],
+            csr25_usdt: csr25Data.points || [],
+          });
+        }
+      } catch (e) {
+        console.error("Failed to fetch price history:", e);
+      }
+    }
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -706,6 +825,7 @@ function App() {
                 }
               }
               lbankHealth={data?.system_status.lbank_gateway}
+              priceHistory={priceHistory.csr_usdt}
             />
             <MarketCard
               title="CSR25 / USDT"
@@ -717,6 +837,7 @@ function App() {
                 }
               }
               lbankHealth={data?.system_status.lbank_gateway}
+              priceHistory={priceHistory.csr25_usdt}
             />
           </div>
         </section>

@@ -124,6 +124,31 @@ const httpClient = axios.create({
   timeout: 5000,
 });
 
+// Price history storage (in-memory, last 100 points per market)
+interface PricePoint {
+  ts: string;
+  cex_price: number;
+  dex_price: number;
+  spread_bps: number;
+}
+
+const priceHistory: {
+  csr_usdt: PricePoint[];
+  csr25_usdt: PricePoint[];
+} = {
+  csr_usdt: [],
+  csr25_usdt: [],
+};
+
+const MAX_HISTORY_POINTS = 100;
+
+function addPricePoint(market: 'csr_usdt' | 'csr25_usdt', point: PricePoint) {
+  priceHistory[market].push(point);
+  if (priceHistory[market].length > MAX_HISTORY_POINTS) {
+    priceHistory[market].shift();
+  }
+}
+
 // Fetch data from microservices
 async function fetchServiceData() {
   try {
@@ -313,6 +338,42 @@ async function fetchServiceData() {
       opportunities.push(decision.csr25_usdt);
     }
 
+    // Record price history for charts
+    if (marketState) {
+      // CSR/USDT - use LATOKEN as CEX source
+      const csrCex = marketState.csr_usdt?.latoken_ticker;
+      const csrDex = marketState.csr_usdt?.uniswap_quote;
+      if (csrCex?.bid && csrDex?.effective_price_usdt) {
+        const cexMid = (csrCex.bid + csrCex.ask) / 2;
+        const spreadBps =
+          ((cexMid - csrDex.effective_price_usdt) /
+            csrDex.effective_price_usdt) *
+          10000;
+        addPricePoint("csr_usdt", {
+          ts: now,
+          cex_price: cexMid,
+          dex_price: csrDex.effective_price_usdt,
+          spread_bps: Math.round(spreadBps * 100) / 100,
+        });
+      }
+      // CSR25/USDT - use LBANK as CEX source
+      const csr25Cex = marketState.csr25_usdt?.lbank_ticker;
+      const csr25Dex = marketState.csr25_usdt?.uniswap_quote;
+      if (csr25Cex?.bid && csr25Dex?.effective_price_usdt) {
+        const cexMid = (csr25Cex.bid + csr25Cex.ask) / 2;
+        const spreadBps =
+          ((cexMid - csr25Dex.effective_price_usdt) /
+            csr25Dex.effective_price_usdt) *
+          10000;
+        addPricePoint("csr25_usdt", {
+          ts: now,
+          cex_price: cexMid,
+          dex_price: csr25Dex.effective_price_usdt,
+          spread_bps: Math.round(spreadBps * 100) / 100,
+        });
+      }
+    }
+
     // Update dashboard data
     dashboardData = {
       ts: now,
@@ -360,6 +421,19 @@ app.get('/', (req, res) => {
 
 app.get('/api/dashboard', (req, res) => {
   res.json(dashboardData);
+});
+
+// Price history API for charts
+app.get('/api/history/:market', (req, res) => {
+  const market = req.params.market as 'csr_usdt' | 'csr25_usdt';
+  if (market !== 'csr_usdt' && market !== 'csr25_usdt') {
+    return res.status(400).json({ error: 'Invalid market. Use csr_usdt or csr25_usdt' });
+  }
+  res.json({
+    market,
+    points: priceHistory[market],
+    count: priceHistory[market].length,
+  });
 });
 
 // Orchestrator API: /api/state - unified market state
