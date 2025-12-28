@@ -1,6 +1,6 @@
-import puppeteer, { Browser, Page } from "puppeteer";
 import * as fs from "fs";
 import * as path from "path";
+import puppeteer, { Browser, Page } from "puppeteer";
 import { ScraperConfig } from "./config";
 import { LogFn, QuoteData, ScrapeError, TokenSymbol } from "./types";
 
@@ -8,7 +8,7 @@ const DEBUG_DIR = "/tmp/uniswap-debug";
 
 /**
  * Observable Uniswap UI Scraper
- * 
+ *
  * Priority: Visibility and non-blocking behavior
  * - Screenshots at each stage
  * - HTML snapshots for debugging
@@ -29,7 +29,7 @@ export class UniswapScraper {
     this.onLog = onLog;
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
-    
+
     // Ensure debug directory exists
     if (!fs.existsSync(DEBUG_DIR)) {
       fs.mkdirSync(DEBUG_DIR, { recursive: true });
@@ -39,7 +39,11 @@ export class UniswapScraper {
   /**
    * Save screenshot for debugging
    */
-  private async saveScreenshot(page: Page, token: TokenSymbol, stage: string): Promise<string> {
+  private async saveScreenshot(
+    page: Page,
+    token: TokenSymbol,
+    stage: string
+  ): Promise<string> {
     const filename = `${token}-${stage}-${Date.now()}.png`;
     const filepath = path.join(DEBUG_DIR, filename);
     try {
@@ -47,9 +51,10 @@ export class UniswapScraper {
       this.onLog("debug", "screenshot_saved", { token, stage, filepath });
       return filepath;
     } catch (error) {
-      this.onLog("warn", "screenshot_failed", { 
-        token, stage, 
-        error: error instanceof Error ? error.message : String(error) 
+      this.onLog("warn", "screenshot_failed", {
+        token,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
       });
       return "";
     }
@@ -58,7 +63,11 @@ export class UniswapScraper {
   /**
    * Save HTML snapshot for debugging
    */
-  private async saveHtml(page: Page, token: TokenSymbol, stage: string): Promise<string> {
+  private async saveHtml(
+    page: Page,
+    token: TokenSymbol,
+    stage: string
+  ): Promise<string> {
     const filename = `${token}-${stage}-${Date.now()}.html`;
     const filepath = path.join(DEBUG_DIR, filename);
     try {
@@ -67,9 +76,10 @@ export class UniswapScraper {
       this.onLog("debug", "html_saved", { token, stage, filepath });
       return filepath;
     } catch (error) {
-      this.onLog("warn", "html_save_failed", { 
-        token, stage, 
-        error: error instanceof Error ? error.message : String(error) 
+      this.onLog("warn", "html_save_failed", {
+        token,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
       });
       return "";
     }
@@ -79,7 +89,15 @@ export class UniswapScraper {
    * Dismiss ALL blocking modals - run until no blockers found
    */
   private async dismissBlockers(page: Page, token: TokenSymbol): Promise<void> {
-    const blockerTexts = ["Accept", "I agree", "Continue", "Close", "Got it", "Dismiss", "OK"];
+    const blockerTexts = [
+      "Accept",
+      "I agree",
+      "Continue",
+      "Close",
+      "Got it",
+      "Dismiss",
+      "OK",
+    ];
     let dismissed = 0;
     const maxIterations = 5;
 
@@ -91,12 +109,17 @@ export class UniswapScraper {
         try {
           const buttons = await page.$$(`button`);
           for (const button of buttons) {
-            const buttonText = await button.evaluate(el => el.textContent || "");
+            const buttonText = await button.evaluate(
+              (el) => el.textContent || ""
+            );
             if (buttonText.toLowerCase().includes(text.toLowerCase())) {
               await button.click();
               dismissed++;
               foundBlocker = true;
-              this.onLog("debug", "blocker_clicked", { token, text: buttonText });
+              this.onLog("debug", "blocker_clicked", {
+                token,
+                text: buttonText,
+              });
               await page.waitForTimeout(300);
             }
           }
@@ -110,13 +133,13 @@ export class UniswapScraper {
         await page.evaluate(() => {
           // Remove overflow:hidden from body
           document.body.style.overflow = "auto";
-          
+
           // Try to find and click close buttons on modals
           const closeSelectors = [
             '[aria-label="Close"]',
             '[data-testid="close-icon"]',
             'button[aria-label*="close"]',
-            '.modal-close',
+            ".modal-close",
           ];
           for (const sel of closeSelectors) {
             const el = document.querySelector(sel) as HTMLElement;
@@ -124,10 +147,12 @@ export class UniswapScraper {
               el.click();
             }
           }
-          
+
           // Hide modal overlays
-          const overlays = document.querySelectorAll('[class*="overlay"], [class*="modal"], [class*="backdrop"]');
-          overlays.forEach(el => {
+          const overlays = document.querySelectorAll(
+            '[class*="overlay"], [class*="modal"], [class*="backdrop"]'
+          );
+          overlays.forEach((el) => {
             (el as HTMLElement).style.display = "none";
           });
         });
@@ -195,7 +220,7 @@ export class UniswapScraper {
       // Save debug artifacts after load
       await this.saveScreenshot(page, token, "01-after-load");
       await this.saveHtml(page, token, "01-after-load");
-      
+
       this.onLog("info", "page_loaded", { token });
 
       // Dismiss blockers
@@ -215,10 +240,18 @@ export class UniswapScraper {
   /**
    * Scrape quote - non-blocking, fast fail
    */
-  async scrapeQuote(token: TokenSymbol, amountUsdt: number): Promise<QuoteData> {
+  async scrapeQuote(
+    token: TokenSymbol,
+    amountUsdt: number
+  ): Promise<QuoteData> {
     const page = this.pages.get(token);
     if (!page) {
-      return this.createInvalidQuote(token, amountUsdt, "selector_missing", "Page not initialized");
+      return this.createInvalidQuote(
+        token,
+        amountUsdt,
+        "selector_missing",
+        "Page not initialized"
+      );
     }
 
     const startTime = Date.now();
@@ -227,16 +260,24 @@ export class UniswapScraper {
     try {
       // Step 1: Find input field
       this.onLog("debug", "finding_input", { token, amountUsdt });
-      
+
       const inputSelector = 'input[inputmode="decimal"]';
       const inputs = await page.$$(inputSelector);
-      
+
       if (inputs.length === 0) {
         await this.saveScreenshot(page, token, `03-no-inputs-${amountUsdt}`);
-        return this.createInvalidQuote(token, amountUsdt, "selector_missing", "No decimal inputs found");
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "selector_missing",
+          "No decimal inputs found"
+        );
       }
 
-      this.onLog("info", "input_field_found", { token, inputCount: inputs.length });
+      this.onLog("info", "input_field_found", {
+        token,
+        inputCount: inputs.length,
+      });
 
       // Use first input (the "You pay" field)
       const inputField = inputs[0];
@@ -245,53 +286,97 @@ export class UniswapScraper {
       const outputBefore = await this.getOutputValue(page);
       this.onLog("debug", "output_before", { token, outputBefore });
 
-      // Step 3: Set input value with proper React dispatching
+      // Step 3: Set input value with proper React dispatching (with timeout)
       this.onLog("debug", "setting_input", { token, amountUsdt });
-      
-      // Clear the input
-      await inputField.click({ clickCount: 3 });
-      await page.keyboard.press("Backspace");
-      
-      // Type the value
-      await inputField.type(amountUsdt.toString(), { delay: 30 });
-      
-      // Dispatch React events
-      await inputField.evaluate((el, value) => {
-        const input = el as HTMLInputElement;
-        
-        // Set value directly
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype, "value"
-        )?.set;
-        if (nativeInputValueSetter) {
-          nativeInputValueSetter.call(input, value);
-        }
-        
-        // Dispatch events
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        input.blur();
-      }, amountUsdt.toString());
 
-      this.onLog("info", "input_value_set", { token, amountUsdt });
+      // Wrap input operations with timeout
+      const inputTimeout = 5000;
+      const inputResult = await Promise.race([
+        (async () => {
+          // Clear the input
+          this.onLog("debug", "clicking_input", { token });
+          await inputField.click({ clickCount: 3 });
+          this.onLog("debug", "pressing_backspace", { token });
+          await page.keyboard.press("Backspace");
+
+          // Type the value
+          this.onLog("debug", "typing_value", { token, amountUsdt });
+          await inputField.type(amountUsdt.toString(), { delay: 20 });
+
+          // Dispatch React events
+          this.onLog("debug", "dispatching_events", { token });
+          await inputField.evaluate((el, value) => {
+            const input = el as HTMLInputElement;
+
+            // Set value directly
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype,
+              "value"
+            )?.set;
+            if (nativeInputValueSetter) {
+              nativeInputValueSetter.call(input, value);
+            }
+
+            // Dispatch events
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            input.blur();
+          }, amountUsdt.toString());
+
+          return "success";
+        })(),
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Input operation timeout")),
+            inputTimeout
+          )
+        ),
+      ]);
+
+      this.onLog("info", "input_value_set", {
+        token,
+        amountUsdt,
+        result: inputResult,
+      });
       await this.saveScreenshot(page, token, `04-after-input-${amountUsdt}`);
 
       // Step 4: Wait for output to change (max 5 seconds, no hanging)
       this.onLog("debug", "waiting_for_output", { token });
-      
-      const outputAfter = await this.waitForOutputChange(page, outputBefore, 5000);
-      
+
+      const outputAfter = await this.waitForOutputChange(
+        page,
+        outputBefore,
+        5000
+      );
+
       if (outputAfter === null) {
-        this.onLog("warn", "output_unchanged", { token, amountUsdt, outputBefore });
-        await this.saveScreenshot(page, token, `05-output-unchanged-${amountUsdt}`);
-        return this.createInvalidQuote(token, amountUsdt, "timeout", "Output did not change");
+        this.onLog("warn", "output_unchanged", {
+          token,
+          amountUsdt,
+          outputBefore,
+        });
+        await this.saveScreenshot(
+          page,
+          token,
+          `05-output-unchanged-${amountUsdt}`
+        );
+        return this.createInvalidQuote(
+          token,
+          amountUsdt,
+          "timeout",
+          "Output did not change"
+        );
       }
 
-      this.onLog("info", "output_changed", { token, outputBefore, outputAfter });
+      this.onLog("info", "output_changed", {
+        token,
+        outputBefore,
+        outputAfter,
+      });
 
       // Step 5: Calculate effective price
       const effectivePrice = amountUsdt / outputAfter;
-      
+
       // Success
       this.consecutiveFailures.set(token, 0);
       this.lastSuccessTs = Date.now();
@@ -317,7 +402,6 @@ export class UniswapScraper {
         ts: Math.floor(Date.now() / 1000),
         valid: true,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
       const failures = (this.consecutiveFailures.get(token) || 0) + 1;
@@ -375,7 +459,7 @@ export class UniswapScraper {
 
     while (Date.now() - startTime < maxWaitMs) {
       const currentValue = await this.getOutputValue(page);
-      
+
       // Check if value changed
       if (currentValue !== null && currentValue > 0) {
         if (originalValue === null || currentValue !== originalValue) {
@@ -420,7 +504,7 @@ export class UniswapScraper {
     } catch {
       // Ignore
     }
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     await this.initialize();
     this.consecutiveFailures.set("CSR", 0);
     this.consecutiveFailures.set("CSR25", 0);
@@ -436,7 +520,7 @@ export class UniswapScraper {
 
   getErrorsLast5m(): number {
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-    return this.recentErrors.filter(e => e.timestamp > fiveMinAgo).length;
+    return this.recentErrors.filter((e) => e.timestamp > fiveMinAgo).length;
   }
 
   getLastSuccessTs(): number | null {
