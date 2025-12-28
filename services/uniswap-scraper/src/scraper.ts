@@ -779,29 +779,42 @@ export class UniswapScraper {
    */
   private async expandSwapDetails(page: Page): Promise<void> {
     try {
-      // Look for clickable swap details header/button
-      const selectors = [
-        '[data-testid="swap-details-header"]',
-        '[class*="SwapDetailsDropdown"]',
-        '[class*="swap-details"]',
-        'button[aria-expanded="false"]',
-      ];
+      // Try clicking on swap details area to expand it
+      await page.evaluate(() => {
+        // Look for any element that might be the swap details toggle
+        const toggleSelectors = [
+          '[data-testid="swap-details-header"]',
+          '[class*="SwapDetailsDropdown"]',
+          '[class*="swap-details"]',
+          '[class*="AdvancedSwapDetails"]',
+          'button[aria-expanded="false"]',
+        ];
 
-      for (const selector of selectors) {
-        const el = await page.$(selector);
-        if (el) {
-          const isExpanded = await page.evaluate((s) => {
-            const elem = document.querySelector(s);
-            return elem?.getAttribute("aria-expanded") === "true";
-          }, selector);
-
-          if (!isExpanded) {
-            await el.click();
-            await page.waitForTimeout(300); // Wait for animation
+        for (const selector of toggleSelectors) {
+          const el = document.querySelector(selector) as HTMLElement;
+          if (el) {
+            el.click();
+            return;
           }
-          break;
         }
-      }
+
+        // Also try to find and click any row that contains "Network cost" or "gas"
+        const rows = document.querySelectorAll("div, button");
+        for (const row of Array.from(rows)) {
+          const text = row.textContent?.toLowerCase() || "";
+          if (
+            (text.includes("network") ||
+              text.includes("gas") ||
+              text.includes("fee")) &&
+            row.querySelector("svg")
+          ) {
+            (row as HTMLElement).click();
+            return;
+          }
+        }
+      });
+
+      await page.waitForTimeout(500); // Wait for any animation
     } catch {
       // Ignore errors - gas extraction will handle missing data
     }
