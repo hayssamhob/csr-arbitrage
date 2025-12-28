@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { useWallet } from "./hooks/useWallet";
 
 // In production (behind nginx), use relative URLs. In dev, use localhost.
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "" : "http://localhost:8001");
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? "" : "http://localhost:8001");
 
 // WebSocket URL needs full origin in production
 function getWsUrl(): string {
@@ -659,6 +662,9 @@ function App() {
     csr25_usdt: [],
   });
 
+  // Wallet integration
+  const wallet = useWallet();
+
   // Fetch price history periodically
   useEffect(() => {
     async function fetchHistory() {
@@ -761,14 +767,54 @@ function App() {
                 </p>
               </div>
             </div>
-            <div className="text-right bg-slate-800/50 rounded-lg p-3 border border-slate-700">
-              <div className="text-sm text-slate-400">Last Update</div>
-              <div className="text-lg font-mono text-emerald-400">
-                {timeAgo(lastUpdate.toISOString())}
+            <div className="flex items-center gap-4">
+              <div className="text-right bg-slate-800/50 rounded-lg p-3 border border-slate-700">
+                <div className="text-sm text-slate-400">Last Update</div>
+                <div className="text-lg font-mono text-emerald-400">
+                  {timeAgo(lastUpdate.toISOString())}
+                </div>
+                {error && (
+                  <div className="text-red-400 text-sm mt-1">{error}</div>
+                )}
               </div>
-              {error && (
-                <div className="text-red-400 text-sm mt-1">{error}</div>
-              )}
+              {/* Wallet Connection */}
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700">
+                {wallet.isConnected ? (
+                  <div className="text-right">
+                    <div className="text-xs text-slate-400">Wallet</div>
+                    <div className="font-mono text-sm text-emerald-400">
+                      {wallet.address?.slice(0, 6)}...
+                      {wallet.address?.slice(-4)}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {wallet.chainId === 1
+                        ? "Ethereum"
+                        : `Chain ${wallet.chainId}`}
+                    </div>
+                    <button
+                      onClick={wallet.disconnect}
+                      className="mt-1 text-xs text-red-400 hover:text-red-300"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={wallet.connect}
+                    disabled={wallet.isConnecting}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 text-white rounded-lg font-medium text-sm transition-colors"
+                  >
+                    {wallet.isConnecting
+                      ? "Connecting..."
+                      : "🦊 Connect Wallet"}
+                  </button>
+                )}
+                {wallet.error && (
+                  <div className="text-red-400 text-xs mt-1">
+                    {wallet.error}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </header>
