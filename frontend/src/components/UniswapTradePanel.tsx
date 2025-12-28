@@ -1,10 +1,11 @@
 import { useState } from "react";
 
-// HARDCODED Uniswap swap URLs per token - VERIFIED CORRECT
+// Uniswap swap URLs per token - using #/swap route with field+value for amount prefill
+// Per Uniswap docs: https://docs.uniswap.org/contracts/v1/guides/custom-linking
 const UNISWAP_URLS = {
-  CSR: "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
+  CSR: "https://app.uniswap.org/#/swap?inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
   CSR25:
-    "https://app.uniswap.org/swap?chain=mainnet&inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982",
+    "https://app.uniswap.org/#/swap?inputCurrency=0xdAC17F958D2ee523a2206206994597C13D831ec7&outputCurrency=0x502E7230E142A332DFEd1095F7174834b2548982",
 } as const;
 
 interface UniswapTradePanelProps {
@@ -40,10 +41,10 @@ export function UniswapTradePanel({
   const spread =
     cexPrice > 0 ? (((dexPrice - cexPrice) / cexPrice) * 100).toFixed(2) : "0";
 
-  // Build URL with amount pre-filled
-  // Uniswap uses exactAmount parameter for v3/v4 interface
+  // Build URL with amount pre-filled using field=input&value=X
+  // Per Uniswap docs: both field and value must be set
   const baseUrl = UNISWAP_URLS[token];
-  const uniswapUrl = `${baseUrl}&exactField=input&exactAmount=${amount}`;
+  const uniswapUrl = `${baseUrl}&field=input&value=${amount}`;
 
   return (
     <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">

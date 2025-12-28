@@ -613,9 +613,9 @@ const MAX_GAS_BPS: Record<string, number> = {
   csr25_usdt: 500, // 5% max gas for CSR25
 };
 
-// Freshness thresholds - increased to be more tolerant
-const CEX_STALE_SEC = 120; // 2 minutes
-const DEX_STALE_SEC = 120; // 2 minutes
+// Freshness thresholds - per source
+const CEX_STALE_SEC = 120; // 2 minutes for CEX (should update frequently)
+const DEX_STALE_SEC = 180; // 3 minutes for DEX (scraper cycle is ~2 min)
 
 app.get("/api/alignment/:market", async (req, res) => {
   const market = req.params.market.toLowerCase();
@@ -765,52 +765,91 @@ app.get("/api/alignment/:market", async (req, res) => {
     result.direction = "BUY";
     result.status = "BUY_ON_DEX";
 
-    // 8. CORRECT ALGORITHM: Find SMALLEST quote where impact >= needed_move
+    // 8. CORRECT ALGORITHM: Find EXACT trade size by interpolating between ladder points
     // need_move_pct = max(0, |gap_pct| - band_pct)
     const neededMovePct = Math.max(0, Math.abs(gapPct) - bandPct);
 
-    let selectedQuote: any = null;
-    let selectionReason = "";
+    // Filter to fresh, valid quotes and compute impact for each
+    const freshQuotes = validQuotes
+      .filter((q: any) => {
+        const quoteAge = now / 1000 - q.ts;
+        return quoteAge <= DEX_STALE_SEC;
+      })
+      .map((q: any) => ({
+        ...q,
+        impactPct: Math.abs(
+          ((q.price_usdt_per_token - spotPrice) / spotPrice) * 100
+        ),
+      }))
+      .filter((q: any) => q.impactPct <= maxImpactCap); // Filter out quotes exceeding impact cap
 
-    // Iterate through quotes from SMALLEST to LARGEST
-    for (const quote of validQuotes) {
-      const quoteAge = now / 1000 - quote.ts;
+    if (freshQuotes.length === 0) {
+      result.required_usdt = null;
+      result.required_tokens = null;
+      result.expected_exec_price = null;
+      result.price_impact_pct = null;
+      result.network_cost_usd = null;
+      result.confidence = "NONE";
+      result.reason = `no_fresh_quotes: all quotes stale (> ${DEX_STALE_SEC}s) or exceed impact cap`;
+      return res.json(result);
+    }
 
-      // Skip stale quotes (> 120s to allow for scraper cycle time ~2min)
-      if (quoteAge > DEX_STALE_SEC) {
-        continue;
-      }
+    // Find the two quotes that bracket the needed impact for interpolation
+    let lowerQuote: any = null;
+    let upperQuote: any = null;
 
-      // Calculate price impact for this quote relative to spot
-      const impactPct = Math.abs(
-        ((quote.price_usdt_per_token - spotPrice) / spotPrice) * 100
-      );
-
-      // Skip if impact exceeds max cap
-      if (impactPct > maxImpactCap) {
-        continue;
-      }
-
-      // Check gas acceptability (if gas available)
-      if (quote.gasEstimateUsdt !== null) {
-        const gasBps = (quote.gasEstimateUsdt / quote.amountInUSDT) * 10000;
-        if (gasBps > maxGasBps) {
-          continue; // Gas too high for this size
-        }
-      }
-
-      // Check if this quote's impact is sufficient to close the gap
-      if (impactPct >= neededMovePct) {
-        selectedQuote = quote;
-        selectionReason = `impact ${impactPct.toFixed(
-          2
-        )}% >= need ${neededMovePct.toFixed(2)}%`;
-        break; // STOP at first (smallest) sufficient quote
+    for (let i = 0; i < freshQuotes.length; i++) {
+      const q = freshQuotes[i];
+      if (q.impactPct >= neededMovePct) {
+        upperQuote = q;
+        lowerQuote = i > 0 ? freshQuotes[i - 1] : null;
+        break;
       }
     }
 
-    // NO FALLBACK TO LARGEST - if nothing matches, return null
-    if (!selectedQuote) {
+    let exactUsdt: number;
+    let exactTokens: number;
+    let exactPrice: number;
+    let exactImpact: number;
+    let selectionReason: string;
+
+    if (upperQuote && lowerQuote && lowerQuote.impactPct < neededMovePct) {
+      // Interpolate between the two quotes to find exact size
+      // Linear interpolation: usdt = lower + (upper - lower) * (need - lowerImpact) / (upperImpact - lowerImpact)
+      const impactRange = upperQuote.impactPct - lowerQuote.impactPct;
+      const usdtRange = upperQuote.amountInUSDT - lowerQuote.amountInUSDT;
+      const impactNeededFromLower = neededMovePct - lowerQuote.impactPct;
+
+      const interpolationFactor = impactNeededFromLower / impactRange;
+      exactUsdt = lowerQuote.amountInUSDT + usdtRange * interpolationFactor;
+
+      // Round to 2 decimal places (cents)
+      exactUsdt = Math.round(exactUsdt * 100) / 100;
+
+      // Interpolate tokens and price proportionally
+      const tokenRange = upperQuote.amountOutToken - lowerQuote.amountOutToken;
+      exactTokens =
+        lowerQuote.amountOutToken + tokenRange * interpolationFactor;
+
+      exactPrice = exactUsdt / exactTokens;
+      exactImpact = neededMovePct;
+
+      selectionReason = `interpolated: $${exactUsdt.toFixed(2)} between $${
+        lowerQuote.amountInUSDT
+      } and $${upperQuote.amountInUSDT} for ${neededMovePct.toFixed(
+        2
+      )}% impact`;
+    } else if (upperQuote) {
+      // Use the first quote that exceeds needed impact (no lower bound to interpolate from)
+      exactUsdt = upperQuote.amountInUSDT;
+      exactTokens = upperQuote.amountOutToken;
+      exactPrice = upperQuote.price_usdt_per_token;
+      exactImpact = upperQuote.impactPct;
+      selectionReason = `first_sufficient: $${exactUsdt} has impact ${exactImpact.toFixed(
+        2
+      )}% >= need ${neededMovePct.toFixed(2)}%`;
+    } else {
+      // No quote has enough impact
       result.required_usdt = null;
       result.required_tokens = null;
       result.expected_exec_price = null;
@@ -819,22 +858,18 @@ app.get("/api/alignment/:market", async (req, res) => {
       result.confidence = "NONE";
       result.reason = `no_safe_size: need ${neededMovePct.toFixed(
         2
-      )}% move, max_impact_cap=${maxImpactCap}%, ladder may be insufficient`;
+      )}% move, max available impact insufficient`;
       return res.json(result);
     }
 
-    // Populate result with selected quote
-    result.required_usdt = selectedQuote.amountInUSDT;
-    result.required_tokens = selectedQuote.amountOutToken;
-    result.expected_exec_price = selectedQuote.price_usdt_per_token;
+    // Populate result with computed exact values
+    result.required_usdt = exactUsdt;
+    result.required_tokens = Math.round(exactTokens * 100) / 100;
+    result.expected_exec_price = exactPrice;
+    result.price_impact_pct = Math.round(exactImpact * 100) / 100;
 
-    const selectedImpactPct = Math.abs(
-      ((selectedQuote.price_usdt_per_token - spotPrice) / spotPrice) * 100
-    );
-    result.price_impact_pct = Math.round(selectedImpactPct * 100) / 100;
-
-    // Gas from selected quote only - do NOT invent or pull from other quotes
-    result.network_cost_usd = selectedQuote.gasEstimateUsdt ?? null;
+    // Gas from upper quote (closest reference)
+    result.network_cost_usd = upperQuote?.gasEstimateUsdt ?? null;
 
     // Confidence based on data quality
     result.confidence =
@@ -845,7 +880,7 @@ app.get("/api/alignment/:market", async (req, res) => {
         : "LOW";
 
     // Build reason string showing WHY this size was chosen
-    result.reason = `$${selectedQuote.amountInUSDT}: ${selectionReason}`;
+    result.reason = selectionReason;
 
     return res.json(result);
   } catch (error: any) {
@@ -1016,6 +1051,96 @@ app.get("/api/alignment/debug/:market", async (req, res) => {
     debug.selection.reason = `error: ${error.message}`;
     return res.json(debug);
   }
+});
+
+// DEBUG: Raw timestamps endpoint to diagnose ms-vs-sec and clock skew issues
+app.get("/api/debug/timestamps", async (_req, res) => {
+  const now = Date.now();
+  const nowDate = new Date(now);
+
+  // Get CEX timestamps
+  const latokenTicker = dashboardData.market_state?.csr_usdt?.latoken_ticker;
+  const lbankTicker = dashboardData.market_state?.csr25_usdt?.lbank_ticker;
+
+  // Get DEX timestamps from scraper
+  let csrDexTs: number | null = null;
+  let csr25DexTs: number | null = null;
+
+  try {
+    const [csrResp, csr25Resp] = await Promise.all([
+      axios.get(`${UNISWAP_SCRAPER_URL}/quotes/CSR`, { timeout: 3000 }).catch(() => null),
+      axios.get(`${UNISWAP_SCRAPER_URL}/quotes/CSR25`, { timeout: 3000 }).catch(() => null),
+    ]);
+
+    if (csrResp?.data?.quotes?.length) {
+      const latestCsr = csrResp.data.quotes.reduce((a: any, b: any) => (a.ts > b.ts ? a : b));
+      csrDexTs = latestCsr.ts;
+    }
+    if (csr25Resp?.data?.quotes?.length) {
+      const latestCsr25 = csr25Resp.data.quotes.reduce((a: any, b: any) => (a.ts > b.ts ? a : b));
+      csr25DexTs = latestCsr25.ts;
+    }
+  } catch {
+    // Ignore scraper errors
+  }
+
+  const result = {
+    server: {
+      now_ms: now,
+      now_sec: Math.floor(now / 1000),
+      now_iso: nowDate.toISOString(),
+    },
+    cex: {
+      csr_latoken: {
+        raw_ts: latokenTicker?.ts || null,
+        parsed_date: latokenTicker?.ts ? new Date(latokenTicker.ts).toISOString() : null,
+        age_sec: latokenTicker?.ts ? Math.round((now - new Date(latokenTicker.ts).getTime()) / 1000) : null,
+        stale_threshold_sec: CEX_STALE_SEC,
+        is_stale: latokenTicker?.ts ? (now - new Date(latokenTicker.ts).getTime()) / 1000 > CEX_STALE_SEC : true,
+      },
+      csr25_lbank: {
+        raw_ts: lbankTicker?.ts || null,
+        parsed_date: lbankTicker?.ts ? new Date(lbankTicker.ts).toISOString() : null,
+        age_sec: lbankTicker?.ts ? Math.round((now - new Date(lbankTicker.ts).getTime()) / 1000) : null,
+        stale_threshold_sec: CEX_STALE_SEC,
+        is_stale: lbankTicker?.ts ? (now - new Date(lbankTicker.ts).getTime()) / 1000 > CEX_STALE_SEC : true,
+      },
+    },
+    dex: {
+      csr: {
+        raw_ts: csrDexTs,
+        is_seconds: csrDexTs && csrDexTs < 2000000000, // Unix seconds vs milliseconds detection
+        parsed_date: csrDexTs
+          ? csrDexTs < 2000000000
+            ? new Date(csrDexTs * 1000).toISOString()
+            : new Date(csrDexTs).toISOString()
+          : null,
+        age_sec: csrDexTs
+          ? csrDexTs < 2000000000
+            ? Math.round(now / 1000 - csrDexTs)
+            : Math.round((now - csrDexTs) / 1000)
+          : null,
+        stale_threshold_sec: DEX_STALE_SEC,
+      },
+      csr25: {
+        raw_ts: csr25DexTs,
+        is_seconds: csr25DexTs && csr25DexTs < 2000000000,
+        parsed_date: csr25DexTs
+          ? csr25DexTs < 2000000000
+            ? new Date(csr25DexTs * 1000).toISOString()
+            : new Date(csr25DexTs).toISOString()
+          : null,
+        age_sec: csr25DexTs
+          ? csr25DexTs < 2000000000
+            ? Math.round(now / 1000 - csr25DexTs)
+            : Math.round((now - csr25DexTs) / 1000)
+          : null,
+        stale_threshold_sec: DEX_STALE_SEC,
+      },
+    },
+  };
+
+  res.json(result);
 });
 
 // Quote ladder endpoint - returns all trade simulations for display
