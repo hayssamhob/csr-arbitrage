@@ -1272,28 +1272,46 @@ app.get("/api/ladder/:token", async (req, res) => {
 });
 
 // ============================================================================
+// Token Swap History - Using RPC Transfer events with pagination
+// ============================================================================
 
-// Token contract addresses (lowercase for subgraph)
+// Token contract addresses
 const TOKEN_ADDRESSES: Record<string, string> = {
-  CSR: "0x75ecb52e403c617679fbd3e77a50f9d10a842387",
-  CSR25: "0x502e7230e142a332dfed1095f7174834b2548982",
+  CSR: "0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
+  CSR25: "0x502E7230E142A332DFEd1095F7174834b2548982",
 };
 
-// USDT address for identifying swap direction
-const USDT_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+// Token decimals
+const TOKEN_DECIMALS: Record<string, number> = {
+  CSR: 18,
+  CSR25: 18,
+};
 
-// Cache for swaps (60s TTL)
+// Known DEX router/pool addresses to identify swaps
+const DEX_ADDRESSES = new Set([
+  "0x000000000004444c5dc75cb358380d2e3de08a90", // Uniswap v4 PoolManager
+  "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad", // Uniswap Universal Router
+  "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", // Uniswap SwapRouter02
+  "0xe592427a0aece92de3edee1f18e0157c05861564", // Uniswap V3 SwapRouter
+  "0xef1c6e67703c7bd7107eed8303fbe6ec2554bf6b", // Uniswap Universal Router (old)
+].map((a) => a.toLowerCase()));
+
+// Cache for swaps (120s TTL - longer since blockchain data is stable)
 interface SwapCache {
   data: any[];
   timestamp: number;
 }
 const swapCache: Record<string, SwapCache> = {};
-const SWAP_CACHE_TTL_MS = 60000;
+const SWAP_CACHE_TTL_MS = 120000;
 
-// Uniswap V3 Subgraph endpoint (free, no API key required)
-const UNISWAP_SUBGRAPH_URL = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3";
+// RPC provider for Transfer event queries
+const RPC_URL = process.env.RPC_URL || "https://eth.llamarpc.com";
+const ethersProvider = new ethers.JsonRpcProvider(RPC_URL);
 
-// Get token transfer history from Uniswap Subgraph
+// ERC20 Transfer event topic
+const TRANSFER_EVENT_TOPIC = ethers.id("Transfer(address,address,uint256)");
+
+// Get token transfer history from blockchain
 app.get("/api/swaps/:token", async (req, res) => {
   const token = req.params.token.toUpperCase();
 
@@ -1302,6 +1320,7 @@ app.get("/api/swaps/:token", async (req, res) => {
   }
 
   const tokenAddress = TOKEN_ADDRESSES[token];
+  const decimals = TOKEN_DECIMALS[token];
   const cacheKey = token;
 
   // Check cache
@@ -1317,104 +1336,132 @@ app.get("/api/swaps/:token", async (req, res) => {
   }
 
   try {
-    // Query Uniswap V3 Subgraph for swaps involving this token
-    const query = `
-      {
-        swaps(
-          first: 50
-          orderBy: timestamp
-          orderDirection: desc
-          where: {
-            or: [
-              { token0: "${tokenAddress}" }
-              { token1: "${tokenAddress}" }
-            ]
-          }
-        ) {
-          id
-          transaction {
-            id
-            blockNumber
-          }
-          timestamp
-          token0 {
-            id
-            symbol
-            decimals
-          }
-          token1 {
-            id
-            symbol
-            decimals
-          }
-          amount0
-          amount1
-          amountUSD
-          origin
-          sender
+    const currentBlock = await ethersProvider.getBlockNumber();
+    const allLogs: any[] = [];
+
+    // Query in chunks of 500 blocks to stay within RPC limits
+    // Scan last 10000 blocks (~33 hours) in 20 chunks
+    const CHUNK_SIZE = 500;
+    const TOTAL_BLOCKS = 10000;
+    const chunks = Math.ceil(TOTAL_BLOCKS / CHUNK_SIZE);
+
+    for (let i = 0; i < chunks && allLogs.length < 50; i++) {
+      const toBlock = currentBlock - i * CHUNK_SIZE;
+      const fromBlock = toBlock - CHUNK_SIZE + 1;
+
+      if (fromBlock < 0) break;
+
+      try {
+        const logs = await ethersProvider.getLogs({
+          address: tokenAddress,
+          topics: [TRANSFER_EVENT_TOPIC],
+          fromBlock,
+          toBlock,
+        });
+        allLogs.push(...logs);
+      } catch (e: any) {
+        // If rate limited, stop querying more chunks
+        if (e.message?.includes("rate") || e.message?.includes("limit")) {
+          break;
         }
       }
-    `;
-
-    const response = await axios.post(UNISWAP_SUBGRAPH_URL, { query });
-
-    if (response.data.errors) {
-      throw new Error(response.data.errors[0]?.message || "Subgraph error");
     }
 
-    const swapsData = response.data.data?.swaps || [];
+    // Deduplicate by tx hash and get unique block numbers
+    const uniqueTxs = new Map<string, any>();
+    const blockNumbers = new Set<number>();
 
-    // Process swaps into display format
-    const swaps = swapsData.map((swap: any) => {
-      const timestamp = parseInt(swap.timestamp);
-      const date = new Date(timestamp * 1000);
-      const now = Date.now();
-      const ageMs = now - date.getTime();
-
-      let timeAgo: string;
-      if (ageMs < 3600000) {
-        timeAgo = `${Math.floor(ageMs / 60000)}m`;
-      } else if (ageMs < 86400000) {
-        timeAgo = `${Math.floor(ageMs / 3600000)}h`;
-      } else {
-        timeAgo = `${Math.floor(ageMs / 86400000)}d`;
+    for (const log of allLogs) {
+      if (!uniqueTxs.has(log.transactionHash)) {
+        uniqueTxs.set(log.transactionHash, log);
+        blockNumbers.add(log.blockNumber);
       }
+    }
 
-      // Determine if this is a buy or sell of the target token
-      const isToken0 = swap.token0.id.toLowerCase() === tokenAddress;
-      const tokenAmount = isToken0
-        ? Math.abs(parseFloat(swap.amount0))
-        : Math.abs(parseFloat(swap.amount1));
-      const otherAmount = isToken0
-        ? Math.abs(parseFloat(swap.amount1))
-        : Math.abs(parseFloat(swap.amount0));
+    // Fetch timestamps for unique blocks (limit to 20 to avoid rate limits)
+    const blockTimestamps: Record<number, number> = {};
+    const blocksToFetch = Array.from(blockNumbers).slice(0, 20);
 
-      // Positive amount0 = token0 going out (sell), negative = token0 coming in (buy)
-      const amount = isToken0 ? parseFloat(swap.amount0) : parseFloat(swap.amount1);
-      const type = amount < 0 ? `Buy ${token}` : `Sell ${token}`;
+    await Promise.all(
+      blocksToFetch.map(async (blockNum) => {
+        try {
+          const block = await ethersProvider.getBlock(blockNum);
+          if (block) {
+            blockTimestamps[blockNum] = block.timestamp;
+          }
+        } catch {
+          // Ignore individual block fetch errors
+        }
+      })
+    );
 
-      const walletAddr = swap.origin || swap.sender || "";
-      const wallet = walletAddr
-        ? `${walletAddr.slice(0, 6)}...${walletAddr.slice(-4)}`
-        : "—";
+    // Process logs into swap format
+    const swaps = Array.from(uniqueTxs.values())
+      .slice(0, 30) // Limit to 30 swaps
+      .map((log: any) => {
+        // Decode Transfer event: from, to, value
+        const from = "0x" + log.topics[1].slice(26);
+        const to = "0x" + log.topics[2].slice(26);
+        const value = BigInt(log.data);
+        const tokenAmount = Number(value) / Math.pow(10, decimals);
 
-      return {
-        tx_hash: swap.transaction?.id || swap.id,
-        block_number: parseInt(swap.transaction?.blockNumber || "0"),
-        timestamp,
-        time_ago: timeAgo,
-        time_iso: date.toISOString(),
-        type,
-        token_amount: tokenAmount,
-        token_amount_formatted: tokenAmount.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        }),
-        usd_amount: parseFloat(swap.amountUSD || "0").toFixed(2),
-        wallet,
-        wallet_full: walletAddr,
-        etherscan_url: `https://etherscan.io/tx/${swap.transaction?.id || swap.id}`,
-      };
-    });
+        const timestamp = blockTimestamps[log.blockNumber] || null;
+        const date = timestamp ? new Date(timestamp * 1000) : new Date();
+        const now = Date.now();
+        const ageMs = timestamp ? now - timestamp * 1000 : 0;
+
+        let timeAgo: string;
+        if (!timestamp) {
+          timeAgo = "—";
+        } else if (ageMs < 3600000) {
+          timeAgo = `${Math.floor(ageMs / 60000)}m`;
+        } else if (ageMs < 86400000) {
+          timeAgo = `${Math.floor(ageMs / 3600000)}h`;
+        } else {
+          timeAgo = `${Math.floor(ageMs / 86400000)}d`;
+        }
+
+        // Determine type based on DEX involvement
+        const fromLower = from.toLowerCase();
+        const toLower = to.toLowerCase();
+        const isDexSwap =
+          DEX_ADDRESSES.has(fromLower) || DEX_ADDRESSES.has(toLower);
+
+        let type: string;
+        let wallet: string;
+
+        if (DEX_ADDRESSES.has(fromLower)) {
+          type = `Buy ${token}`;
+          wallet = to;
+        } else if (DEX_ADDRESSES.has(toLower)) {
+          type = `Sell ${token}`;
+          wallet = from;
+        } else {
+          type = "Transfer";
+          wallet = from;
+        }
+
+        return {
+          tx_hash: log.transactionHash,
+          block_number: log.blockNumber,
+          timestamp,
+          time_ago: timeAgo,
+          time_iso: timestamp ? date.toISOString() : null,
+          type,
+          is_dex_swap: isDexSwap,
+          token_amount: tokenAmount,
+          token_amount_formatted: tokenAmount.toLocaleString(undefined, {
+            maximumFractionDigits: 2,
+          }),
+          wallet: `${wallet.slice(0, 6)}...${wallet.slice(-4)}`,
+          wallet_full: wallet,
+          from,
+          to,
+          etherscan_url: `https://etherscan.io/tx/${log.transactionHash}`,
+        };
+      })
+      // Filter to only DEX swaps
+      .filter((s: any) => s.is_dex_swap);
 
     // Update cache
     swapCache[cacheKey] = {
@@ -1428,6 +1475,7 @@ app.get("/api/swaps/:token", async (req, res) => {
       swaps,
       cached: false,
       total_found: swaps.length,
+      blocks_scanned: TOTAL_BLOCKS,
     });
   } catch (error: any) {
     console.error(`Error fetching swaps for ${token}:`, error.message);
