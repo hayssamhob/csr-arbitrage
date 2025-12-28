@@ -1271,32 +1271,18 @@ app.get("/api/ladder/:token", async (req, res) => {
   }
 });
 
-app.get("/api/market", (req, res) => {
-  res.json(dashboardData.market_state);
-});
-
-// ============================================================================
-// Token Swap History - Using Etherscan API for full history
 // ============================================================================
 
-// Token contract addresses
+// Token contract addresses (lowercase for subgraph)
 const TOKEN_ADDRESSES: Record<string, string> = {
-  CSR: "0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
-  CSR25: "0x502E7230E142A332DFEd1095F7174834b2548982",
+  CSR: "0x75ecb52e403c617679fbd3e77a50f9d10a842387",
+  CSR25: "0x502e7230e142a332dfed1095f7174834b2548982",
 };
 
 // USDT address for identifying swap direction
-const USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7".toLowerCase();
+const USDT_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 
-// Known DEX router/pool addresses to filter swaps
-const DEX_ADDRESSES = new Set([
-  "0x000000000004444c5dc75cb358380d2e3de08a90", // Uniswap v4 PoolManager
-  "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad", // Uniswap Universal Router
-  "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", // Uniswap SwapRouter02
-  "0xe592427a0aece92de3edee1f18e0157c05861564", // Uniswap V3 SwapRouter
-].map(a => a.toLowerCase()));
-
-// Cache for swaps (60s TTL - longer since this is historical data)
+// Cache for swaps (60s TTL)
 interface SwapCache {
   data: any[];
   timestamp: number;
@@ -1304,10 +1290,10 @@ interface SwapCache {
 const swapCache: Record<string, SwapCache> = {};
 const SWAP_CACHE_TTL_MS = 60000;
 
-// Etherscan API key (free tier: 5 calls/sec)
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
+// Uniswap V3 Subgraph endpoint (free, no API key required)
+const UNISWAP_SUBGRAPH_URL = "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3";
 
-// Get token transfer history from Etherscan
+// Get token transfer history from Uniswap Subgraph
 app.get("/api/swaps/:token", async (req, res) => {
   const token = req.params.token.toUpperCase();
 
@@ -1331,63 +1317,56 @@ app.get("/api/swaps/:token", async (req, res) => {
   }
 
   try {
-    // Query Etherscan V2 API for token transfers (chainid=1 for Ethereum mainnet)
-    const apiUrl = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=tokentx&contractaddress=${tokenAddress}&page=1&offset=100&sort=desc${
-      ETHERSCAN_API_KEY ? `&apikey=${ETHERSCAN_API_KEY}` : ""
-    }`;
-
-    const response = await axios.get(apiUrl);
-
-    if (response.data.status !== "1" || !response.data.result) {
-      // Handle "No transactions found" as empty array, not error
-      if (response.data.message === "No transactions found") {
-        swapCache[cacheKey] = { data: [], timestamp: Date.now() };
-        return res.json({
-          token,
-          token_address: tokenAddress,
-          swaps: [],
-          cached: false,
-          total_found: 0,
-        });
+    // Query Uniswap V3 Subgraph for swaps involving this token
+    const query = `
+      {
+        swaps(
+          first: 50
+          orderBy: timestamp
+          orderDirection: desc
+          where: {
+            or: [
+              { token0: "${tokenAddress}" }
+              { token1: "${tokenAddress}" }
+            ]
+          }
+        ) {
+          id
+          transaction {
+            id
+            blockNumber
+          }
+          timestamp
+          token0 {
+            id
+            symbol
+            decimals
+          }
+          token1 {
+            id
+            symbol
+            decimals
+          }
+          amount0
+          amount1
+          amountUSD
+          origin
+          sender
+        }
       }
-      throw new Error(response.data.message || "Etherscan API error");
+    `;
+
+    const response = await axios.post(UNISWAP_SUBGRAPH_URL, { query });
+
+    if (response.data.errors) {
+      throw new Error(response.data.errors[0]?.message || "Subgraph error");
     }
 
-    const transfers = response.data.result;
+    const swapsData = response.data.data?.swaps || [];
 
-    // Process transfers into swap format
-    const swaps = transfers.map((tx: any) => {
-      const fromAddr = tx.from.toLowerCase();
-      const toAddr = tx.to.toLowerCase();
-
-      // Determine if this is a DEX swap (involves known DEX addresses)
-      const isDexSwap =
-        DEX_ADDRESSES.has(fromAddr) || DEX_ADDRESSES.has(toAddr);
-
-      // Determine swap type:
-      // - If token goes TO a DEX/pool = SELL (user selling token)
-      // - If token comes FROM a DEX/pool = BUY (user buying token)
-      let type: string;
-      let wallet: string;
-
-      if (DEX_ADDRESSES.has(toAddr)) {
-        type = "Sell " + token;
-        wallet = fromAddr;
-      } else if (DEX_ADDRESSES.has(fromAddr)) {
-        type = "Buy " + token;
-        wallet = toAddr;
-      } else {
-        type = "Transfer";
-        wallet = fromAddr;
-      }
-
-      // Calculate token amount (handle decimals)
-      const decimals = parseInt(tx.tokenDecimal) || 18;
-      const rawAmount = BigInt(tx.value);
-      const tokenAmount = Number(rawAmount) / Math.pow(10, decimals);
-
-      // Format time
-      const timestamp = parseInt(tx.timeStamp);
+    // Process swaps into display format
+    const swaps = swapsData.map((swap: any) => {
+      const timestamp = parseInt(swap.timestamp);
       const date = new Date(timestamp * 1000);
       const now = Date.now();
       const ageMs = now - date.getTime();
@@ -1401,42 +1380,54 @@ app.get("/api/swaps/:token", async (req, res) => {
         timeAgo = `${Math.floor(ageMs / 86400000)}d`;
       }
 
+      // Determine if this is a buy or sell of the target token
+      const isToken0 = swap.token0.id.toLowerCase() === tokenAddress;
+      const tokenAmount = isToken0
+        ? Math.abs(parseFloat(swap.amount0))
+        : Math.abs(parseFloat(swap.amount1));
+      const otherAmount = isToken0
+        ? Math.abs(parseFloat(swap.amount1))
+        : Math.abs(parseFloat(swap.amount0));
+
+      // Positive amount0 = token0 going out (sell), negative = token0 coming in (buy)
+      const amount = isToken0 ? parseFloat(swap.amount0) : parseFloat(swap.amount1);
+      const type = amount < 0 ? `Buy ${token}` : `Sell ${token}`;
+
+      const walletAddr = swap.origin || swap.sender || "";
+      const wallet = walletAddr
+        ? `${walletAddr.slice(0, 6)}...${walletAddr.slice(-4)}`
+        : "—";
+
       return {
-        tx_hash: tx.hash,
-        block_number: parseInt(tx.blockNumber),
+        tx_hash: swap.transaction?.id || swap.id,
+        block_number: parseInt(swap.transaction?.blockNumber || "0"),
         timestamp,
         time_ago: timeAgo,
         time_iso: date.toISOString(),
         type,
-        is_dex_swap: isDexSwap,
         token_amount: tokenAmount,
         token_amount_formatted: tokenAmount.toLocaleString(undefined, {
           maximumFractionDigits: 2,
         }),
-        wallet: `${wallet.slice(0, 6)}...${wallet.slice(-4)}`,
-        wallet_full: wallet,
-        from: tx.from,
-        to: tx.to,
-        etherscan_url: `https://etherscan.io/tx/${tx.hash}`,
+        usd_amount: parseFloat(swap.amountUSD || "0").toFixed(2),
+        wallet,
+        wallet_full: walletAddr,
+        etherscan_url: `https://etherscan.io/tx/${swap.transaction?.id || swap.id}`,
       };
     });
 
-    // Filter to only show DEX swaps (not regular transfers)
-    const dexSwaps = swaps.filter((s: any) => s.is_dex_swap);
-
     // Update cache
     swapCache[cacheKey] = {
-      data: dexSwaps,
+      data: swaps,
       timestamp: Date.now(),
     };
 
     res.json({
       token,
       token_address: tokenAddress,
-      swaps: dexSwaps,
+      swaps,
       cached: false,
-      total_transfers: transfers.length,
-      dex_swaps: dexSwaps.length,
+      total_found: swaps.length,
     });
   } catch (error: any) {
     console.error(`Error fetching swaps for ${token}:`, error.message);
