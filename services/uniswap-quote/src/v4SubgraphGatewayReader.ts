@@ -9,6 +9,7 @@ interface PoolData {
   id: string;
   feeTier: string;
   sqrtPrice: string;
+  tick: string;
   token0: {
     id: string;
     symbol: string;
@@ -19,8 +20,6 @@ interface PoolData {
     symbol: string;
     decimals: string;
   };
-  token0Price: string;
-  token1Price: string;
   liquidity: string;
 }
 
@@ -38,6 +37,7 @@ export class V4SubgraphGatewayReader {
           id
           feeTier
           sqrtPrice
+          tick
           token0 {
             id
             symbol
@@ -48,8 +48,6 @@ export class V4SubgraphGatewayReader {
             symbol
             decimals
           }
-          token0Price
-          token1Price
           liquidity
         }
       }
@@ -57,9 +55,9 @@ export class V4SubgraphGatewayReader {
 
     try {
       const response = await fetch(this.subgraphUrl, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           query,
@@ -70,18 +68,21 @@ export class V4SubgraphGatewayReader {
       const result = await response.json();
 
       if (result.errors) {
-        console.error('Subgraph query errors:', result.errors);
+        console.error("Subgraph query errors:", result.errors);
         return null;
       }
 
       return result.data.pool || null;
     } catch (error) {
-      console.error('Failed to fetch pool by ID:', error);
+      console.error("Failed to fetch pool by ID:", error);
       return null;
     }
   }
 
-  async discoverPoolByTokens(token0: TokenConfig, token1: TokenConfig): Promise<PoolData | null> {
+  async discoverPoolByTokens(
+    token0: TokenConfig,
+    token1: TokenConfig
+  ): Promise<PoolData | null> {
     // Try both token orderings
     const queries = [
       {
@@ -91,6 +92,7 @@ export class V4SubgraphGatewayReader {
               id
               feeTier
               sqrtPrice
+              tick
               token0 {
                 id
                 symbol
@@ -101,13 +103,14 @@ export class V4SubgraphGatewayReader {
                 symbol
                 decimals
               }
-              token0Price
-              token1Price
               liquidity
             }
           }
         `,
-        variables: { token0: token0.address.toLowerCase(), token1: token1.address.toLowerCase() },
+        variables: {
+          token0: token0.address.toLowerCase(),
+          token1: token1.address.toLowerCase(),
+        },
       },
       {
         query: `
@@ -116,6 +119,7 @@ export class V4SubgraphGatewayReader {
               id
               feeTier
               sqrtPrice
+              tick
               token0 {
                 id
                 symbol
@@ -126,22 +130,23 @@ export class V4SubgraphGatewayReader {
                 symbol
                 decimals
               }
-              token0Price
-              token1Price
               liquidity
             }
           }
         `,
-        variables: { token0: token1.address.toLowerCase(), token1: token0.address.toLowerCase() },
+        variables: {
+          token0: token1.address.toLowerCase(),
+          token1: token0.address.toLowerCase(),
+        },
       },
     ];
 
     for (const { query, variables } of queries) {
       try {
         const response = await fetch(this.subgraphUrl, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({ query, variables }),
         });
@@ -149,16 +154,16 @@ export class V4SubgraphGatewayReader {
         const result = await response.json();
 
         if (result.errors) {
-          console.error('Subgraph query errors:', result.errors);
+          console.error("Subgraph query errors:", result.errors);
           continue;
         }
 
         const pools = result.data.pools || [];
-        if (pools.length > 0 && pools[0].liquidity !== '0') {
+        if (pools.length > 0 && pools[0].liquidity !== "0") {
           return pools[0];
         }
       } catch (error) {
-        console.error('Failed to discover pool:', error);
+        console.error("Failed to discover pool:", error);
         continue;
       }
     }
@@ -166,36 +171,36 @@ export class V4SubgraphGatewayReader {
     return null;
   }
 
-  computeUsdtPrice(pool: PoolData, usdtToken: TokenConfig, targetToken: TokenConfig): number {
-    const isUsdtToken0 = pool.token0.id.toLowerCase() === usdtToken.address.toLowerCase();
-    
-    if (isUsdtToken0) {
-      // USDT is token0, target is token1
-      if (pool.token1.id.toLowerCase() === targetToken.address.toLowerCase()) {
-        // Direct price: token0Price is USDT per token1
-        return parseFloat(pool.token0Price);
-      }
-    } else {
-      // USDT is token1, target is token0
-      if (pool.token0.id.toLowerCase() === targetToken.address.toLowerCase()) {
-        // Direct price: token1Price is USDT per token0
-        return parseFloat(pool.token1Price);
-      }
-    }
+  computeUsdtPrice(
+    pool: PoolData,
+    usdtToken: TokenConfig,
+    targetToken: TokenConfig
+  ): number {
+    const isUsdtToken0 =
+      pool.token0.id.toLowerCase() === usdtToken.address.toLowerCase();
 
-    // Fallback: compute from sqrtPrice if needed
+    // Compute price from sqrtPrice (V4 doesn't have token0Price/token1Price)
+    // sqrtPrice is Q64.96 format: sqrtPrice = sqrt(price) * 2^96
     const sqrtPrice = parseFloat(pool.sqrtPrice);
-    const price = (sqrtPrice / (2 ** 96)) ** 2;
-    
-    // Apply decimal adjustments
-    const decimalAdjustment = 10 ** (usdtToken.decimals - targetToken.decimals);
-    
+    const rawPrice = (sqrtPrice / 2 ** 96) ** 2;
+
+    // Get decimals
+    const token0Decimals = parseInt(pool.token0.decimals);
+    const token1Decimals = parseInt(pool.token1.decimals);
+
+    // rawPrice = token1/token0 in raw units
+    // Adjust for decimals: price in human units = rawPrice * 10^(token0Decimals - token1Decimals)
+    const decimalAdjustment = 10 ** (token0Decimals - token1Decimals);
+    const adjustedPrice = rawPrice * decimalAdjustment;
+
     if (isUsdtToken0) {
-      // USDT is token0, price is token1/token0, so we need 1/price
-      return (1 / price) * decimalAdjustment;
+      // USDT is token0, so adjustedPrice = TARGET/USDT
+      // We want USDT per TARGET, so return 1/adjustedPrice
+      return 1 / adjustedPrice;
     } else {
-      // USDT is token1, price is token1/token0 = USDT/TOKEN
-      return price * decimalAdjustment;
+      // USDT is token1, so adjustedPrice = USDT/TARGET
+      // We want USDT per TARGET, so return adjustedPrice
+      return adjustedPrice;
     }
   }
 }
