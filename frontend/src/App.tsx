@@ -16,6 +16,7 @@ import {
 } from "./components/GlobalStatusBar";
 import { MarketContextCard } from "./components/MarketContextCard";
 import { QuoteLadder } from "./components/QuoteLadder";
+import { RecentSwaps } from "./components/RecentSwaps";
 import { UniswapTradePanel } from "./components/UniswapTradePanel";
 import { useWallet } from "./hooks/useWallet";
 import type { DexQuote } from "./lib/alignmentEngine";
