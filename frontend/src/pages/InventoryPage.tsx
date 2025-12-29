@@ -10,8 +10,18 @@
 import { useEffect, useState } from "react";
 import { Footer } from "../components/Footer";
 import { useAuth } from "../contexts/AuthContext";
+import { useWallet } from "../hooks/useWallet";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
+
+interface RecentTransaction {
+  hash: string;
+  type: string;
+  amount: string;
+  token: string;
+  timestamp: string;
+  status: "confirmed" | "pending";
+}
 
 interface VenueBalance {
   venue: string;
@@ -41,6 +51,7 @@ interface InventoryState {
 
 export function InventoryPage() {
   const { user, getAccessToken } = useAuth();
+  const wallet = useWallet();
   const [state, setState] = useState<InventoryState>({
     balances: [],
     total_usd: 0,
@@ -54,6 +65,8 @@ export function InventoryPage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recentTxs, setRecentTxs] = useState<RecentTransaction[]>([]);
+  const [loadingTxs, setLoadingTxs] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -62,6 +75,45 @@ export function InventoryPage() {
       setLoading(false);
     }
   }, [user]);
+
+  // Fetch recent transactions when wallet is connected
+  useEffect(() => {
+    if (wallet.isConnected && wallet.address) {
+      fetchRecentTransactions(wallet.address);
+    }
+  }, [wallet.isConnected, wallet.address]);
+
+  const fetchRecentTransactions = async (address: string) => {
+    setLoadingTxs(true);
+    try {
+      // Fetch from Etherscan API (free tier)
+      const apiKey = "YourApiKeyToken"; // Free tier works without key for limited calls
+      const response = await fetch(
+        `https://api.etherscan.io/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=10&sort=desc&apikey=${apiKey}`
+      );
+      const data = await response.json();
+
+      if (data.status === "1" && Array.isArray(data.result)) {
+        const txs: RecentTransaction[] = data.result
+          .slice(0, 5)
+          .map((tx: any) => ({
+            hash: tx.hash,
+            type:
+              tx.from.toLowerCase() === address.toLowerCase()
+                ? "transfer"
+                : "receive",
+            amount: (parseFloat(tx.value) / 1e18).toFixed(4),
+            token: "ETH",
+            timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+            status: tx.txreceipt_status === "1" ? "confirmed" : "pending",
+          }));
+        setRecentTxs(txs);
+      }
+    } catch (err) {
+      console.error("Failed to fetch transactions:", err);
+    }
+    setLoadingTxs(false);
+  };
 
   const fetchBalances = async () => {
     setLoading(true);
@@ -245,7 +297,20 @@ export function InventoryPage() {
                 ))}
                 {getVenueBalances(venue).length === 0 && (
                   <div className="px-4 py-6 text-center text-sm">
-                    {state.exchange_statuses[venue.toLowerCase()]?.connected ? (
+                    {venue === "Wallet" ? (
+                      wallet.isConnected ? (
+                        <div>
+                          <span className="text-emerald-400">✓ Connected</span>
+                          <p className="text-xs text-slate-500 mt-1 font-mono">
+                            {wallet.address?.slice(0, 6)}...
+                            {wallet.address?.slice(-4)}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">Not connected</span>
+                      )
+                    ) : state.exchange_statuses[venue.toLowerCase()]
+                        ?.connected ? (
                       <div>
                         <span className="text-emerald-400">✓ Connected</span>
                         {state.exchange_statuses[venue.toLowerCase()]
@@ -293,6 +358,72 @@ export function InventoryPage() {
               <div className="font-mono text-lg">100</div>
             </div>
           </div>
+        </div>
+
+        {/* Recent Transactions */}
+        <div className="mt-6 bg-slate-900/50 rounded-xl border border-slate-700 p-4">
+          <h3 className="font-semibold mb-4">Recent Transactions</h3>
+          {loadingTxs ? (
+            <div className="text-center text-slate-500 py-4">
+              Loading transactions...
+            </div>
+          ) : recentTxs.length > 0 ? (
+            <div className="space-y-2">
+              {recentTxs.map((tx, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between bg-slate-800/50 rounded-lg p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs px-2 py-1 rounded ${
+                        tx.type === "swap"
+                          ? "bg-blue-500/20 text-blue-400"
+                          : tx.type === "transfer"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-slate-500/20 text-slate-400"
+                      }`}
+                    >
+                      {tx.type.toUpperCase()}
+                    </span>
+                    <div>
+                      <div className="font-mono text-sm">
+                        {tx.amount} {tx.token}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {new Date(tx.timestamp).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        tx.status === "confirmed"
+                          ? "bg-emerald-500"
+                          : "bg-amber-500 animate-pulse"
+                      }`}
+                    ></span>
+                    <a
+                      href={`https://etherscan.io/tx/${tx.hash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-slate-400 hover:text-white font-mono"
+                    >
+                      {tx.hash.slice(0, 8)}...
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : wallet.isConnected ? (
+            <div className="text-center text-slate-500 py-4 text-sm">
+              No recent transactions found for this wallet
+            </div>
+          ) : (
+            <div className="text-center text-slate-500 py-4 text-sm">
+              Connect your wallet to view transactions
+            </div>
+          )}
         </div>
 
         {/* Last Update */}
