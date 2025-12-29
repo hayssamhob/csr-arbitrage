@@ -305,9 +305,10 @@ export class LBankClient extends EventEmitter {
 
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        // LBank V2 WebSocket requires action field in all messages
+        // LBank V2 WebSocket requires both action and ping fields
         const pingMsg = JSON.stringify({
           action: "ping",
+          ping: Date.now().toString(),
         });
         this.ws.send(pingMsg);
         this.onLog("debug", "ping_sent");
