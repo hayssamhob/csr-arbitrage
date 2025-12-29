@@ -346,6 +346,19 @@ interface ArbitrageState {
   };
 }
 
+interface UserBalance {
+  venue: string;
+  asset: string;
+  available: number;
+  total: number;
+  usd_value: number;
+}
+
+interface UserInventory {
+  balances: UserBalance[];
+  total_usd: number;
+}
+
 export function ArbitragePage() {
   const [state, setState] = useState<ArbitrageState>({
     mode: "PAPER",
@@ -358,6 +371,43 @@ export function ArbitragePage() {
     priceHistory: { csr_usdt: [], csr25_usdt: [] },
   });
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
+  const [userInventory, setUserInventory] = useState<UserInventory | null>(
+    null
+  );
+
+  // Helper to get available balance for a venue/asset
+  const getAvailableBalance = (venue: string, asset: string): number => {
+    if (!userInventory) return 0;
+    const balance = userInventory.balances.find(
+      (b) => b.venue === venue && b.asset === asset
+    );
+    return balance?.available || 0;
+  };
+
+  // Calculate max trade size based on actual balances
+  const calculateMaxTradeSize = (opp: Opportunity): number => {
+    if (!userInventory) return opp.max_safe_size;
+
+    // For BUY_DEX_SELL_CEX: need USDT on DEX (wallet) to buy, token on CEX to sell
+    // For BUY_CEX_SELL_DEX: need USDT on CEX to buy, token on wallet to sell
+    const token = opp.market.split("/")[0]; // CSR or CSR25
+
+    if (opp.direction === "BUY_DEX_SELL_CEX") {
+      // Need USDT in wallet to buy on DEX
+      const walletUsdt = getAvailableBalance("Wallet", "USDT");
+      // Need token on CEX to sell
+      const cexToken = getAvailableBalance(opp.cex_venue, token);
+      const cexTokenValue = cexToken * opp.cex_bid;
+      return Math.min(walletUsdt, cexTokenValue, opp.max_safe_size);
+    } else {
+      // Need USDT on CEX to buy
+      const cexUsdt = getAvailableBalance(opp.cex_venue, "USDT");
+      // Need token in wallet to sell on DEX
+      const walletToken = getAvailableBalance("Wallet", token);
+      const walletTokenValue = walletToken * opp.dex_exec_price;
+      return Math.min(cexUsdt, walletTokenValue, opp.max_safe_size);
+    }
+  };
 
   // Fetch real data from dashboard API
   useEffect(() => {
@@ -493,6 +543,38 @@ export function ArbitragePage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch user inventory for balance-based calculations
+  useEffect(() => {
+    const fetchInventory = async () => {
+      try {
+        // Try to get auth token from localStorage
+        const authData = localStorage.getItem("auth");
+        if (!authData) return;
+
+        const { accessToken } = JSON.parse(authData);
+        if (!accessToken) return;
+
+        const response = await fetch(`${API_URL}/api/me/balances`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUserInventory({
+            balances: data.balances || [],
+            total_usd: data.total_usd || 0,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch user inventory:", err);
+      }
+    };
+
+    fetchInventory();
+    const interval = setInterval(fetchInventory, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
+
   const handleModeChange = (mode: "PAPER" | "MANUAL" | "AUTO") => {
     if (mode === "AUTO" && state.kill_switch) {
       alert("Cannot enable AUTO mode while kill switch is active");
@@ -624,6 +706,109 @@ export function ArbitragePage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* User Balances Summary */}
+        {userInventory && userInventory.balances.length > 0 && (
+          <div className="mb-6 bg-slate-900/50 rounded-xl border border-slate-700 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">💰 Available for Trading</h3>
+              <span className="text-sm text-slate-400">
+                Total: ${userInventory.total_usd.toFixed(2)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Wallet */}
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">
+                  🔐 Wallet (DEX)
+                </div>
+                <div className="space-y-1">
+                  {userInventory.balances
+                    .filter((b) => b.venue === "Wallet" && b.available > 0)
+                    .map((b) => (
+                      <div
+                        key={b.asset}
+                        className="flex justify-between text-sm"
+                      >
+                        <span>{b.asset}</span>
+                        <span className="font-mono">
+                          {b.available.toFixed(4)}
+                        </span>
+                      </div>
+                    ))}
+                  {userInventory.balances.filter(
+                    (b) => b.venue === "Wallet" && b.available > 0
+                  ).length === 0 && (
+                    <div className="text-xs text-slate-500">No assets</div>
+                  )}
+                </div>
+              </div>
+              {/* LBank */}
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">🏦 LBank</div>
+                <div className="space-y-1">
+                  {userInventory.balances
+                    .filter((b) => b.venue === "LBank" && b.available > 0)
+                    .map((b) => (
+                      <div
+                        key={b.asset}
+                        className="flex justify-between text-sm"
+                      >
+                        <span>{b.asset}</span>
+                        <span className="font-mono">
+                          {b.available.toFixed(4)}
+                        </span>
+                      </div>
+                    ))}
+                  {userInventory.balances.filter(
+                    (b) => b.venue === "LBank" && b.available > 0
+                  ).length === 0 && (
+                    <div className="text-xs text-slate-500">No assets</div>
+                  )}
+                </div>
+              </div>
+              {/* LATOKEN */}
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">🏛️ LATOKEN</div>
+                <div className="space-y-1">
+                  {userInventory.balances
+                    .filter((b) => b.venue === "LATOKEN" && b.available > 0)
+                    .map((b) => (
+                      <div
+                        key={b.asset}
+                        className="flex justify-between text-sm"
+                      >
+                        <span>{b.asset}</span>
+                        <span className="font-mono">
+                          {b.available.toFixed(4)}
+                        </span>
+                      </div>
+                    ))}
+                  {userInventory.balances.filter(
+                    (b) => b.venue === "LATOKEN" && b.available > 0
+                  ).length === 0 && (
+                    <div className="text-xs text-slate-500">No assets</div>
+                  )}
+                </div>
+              </div>
+              {/* Trading Capacity */}
+              <div className="bg-emerald-900/30 border border-emerald-700/50 rounded-lg p-3">
+                <div className="text-xs text-emerald-400 mb-1">
+                  ⚡ Ready to Trade
+                </div>
+                <div className="text-lg font-bold text-emerald-400">
+                  $
+                  {Math.min(
+                    userInventory.balances.find((b) => b.asset === "USDT")
+                      ?.available || 0,
+                    userInventory.total_usd
+                  ).toFixed(2)}
+                </div>
+                <div className="text-xs text-slate-400">Max single trade</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Opportunities Table */}
         <div className="bg-slate-900/50 rounded-xl border border-slate-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-700">
@@ -715,8 +900,24 @@ export function ArbitragePage() {
                         ${opp.edge_usd.toFixed(2)}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      ${opp.max_safe_size}
+                    <td className="px-4 py-3 text-right">
+                      <Tooltip
+                        text={
+                          userInventory
+                            ? `Based on your available balances`
+                            : `Market-based estimate`
+                        }
+                      >
+                        <div className="font-mono">
+                          ${calculateMaxTradeSize(opp).toFixed(0)}
+                        </div>
+                        {userInventory &&
+                          calculateMaxTradeSize(opp) < opp.max_safe_size && (
+                            <div className="text-xs text-amber-400">
+                              Limited by balance
+                            </div>
+                          )}
+                      </Tooltip>
                     </td>
                     <td className="px-4 py-3">
                       <span

@@ -6,10 +6,10 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import * as crypto from 'crypto';
+import axios from "axios";
+import * as crypto from "crypto";
 import { Router } from "express";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
-import axios from "axios";
 
 // Token contract addresses on Ethereum mainnet
 const TOKEN_CONTRACTS = {
@@ -811,5 +811,244 @@ function calculateUsdValues(
     usd_value: (balance.total || 0) * (prices[balance.asset] || 0),
   }));
 }
+
+// Uniswap V3 Position Manager contract address
+const UNISWAP_V3_POSITIONS_NFT = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88";
+
+// ABI for Uniswap V3 NonfungiblePositionManager
+const POSITION_MANAGER_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+  "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
+];
+
+// Token symbol mapping
+const TOKEN_SYMBOLS: Record<string, { symbol: string; decimals: number }> = {
+  "0x6bba316c48b49bd1eac44573c5c871ff02958469": { symbol: "CSR", decimals: 18 },
+  "0x0f5c78f152152dda52a2ea45b0a8c10733010748": { symbol: "CSR25", decimals: 18 },
+  "0xdac17f958d2ee523a2206206994597c13d831ec7": { symbol: "USDT", decimals: 6 },
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": { symbol: "WETH", decimals: 18 },
+};
+
+// Helper to fetch Uniswap V3 liquidity positions for a wallet
+async function fetchUniswapV3Positions(walletAddress: string): Promise<any[]> {
+  const ethers = require("ethers");
+  const positions: any[] = [];
+
+  try {
+    const rpcUrl = process.env.RPC_URL || "https://eth.llamarpc.com";
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+    const positionManager = new ethers.Contract(
+      UNISWAP_V3_POSITIONS_NFT,
+      POSITION_MANAGER_ABI,
+      provider
+    );
+
+    // Get number of positions owned by wallet
+    const balance = await positionManager.balanceOf(walletAddress);
+    const numPositions = Number(balance);
+
+    console.log(`Found ${numPositions} Uniswap V3 positions for ${walletAddress}`);
+
+    // Fetch each position
+    for (let i = 0; i < Math.min(numPositions, 10); i++) {
+      // Limit to 10 positions
+      try {
+        const tokenId = await positionManager.tokenOfOwnerByIndex(walletAddress, i);
+        const position = await positionManager.positions(tokenId);
+
+        const token0Address = position.token0.toLowerCase();
+        const token1Address = position.token1.toLowerCase();
+        const token0Info = TOKEN_SYMBOLS[token0Address] || { symbol: token0Address.slice(0, 8), decimals: 18 };
+        const token1Info = TOKEN_SYMBOLS[token1Address] || { symbol: token1Address.slice(0, 8), decimals: 18 };
+
+        // Only include positions with liquidity > 0
+        if (Number(position.liquidity) > 0) {
+          positions.push({
+            tokenId: tokenId.toString(),
+            token0: {
+              address: position.token0,
+              symbol: token0Info.symbol,
+              decimals: token0Info.decimals,
+            },
+            token1: {
+              address: position.token1,
+              symbol: token1Info.symbol,
+              decimals: token1Info.decimals,
+            },
+            fee: Number(position.fee),
+            liquidity: position.liquidity.toString(),
+            tickLower: Number(position.tickLower),
+            tickUpper: Number(position.tickUpper),
+            tokensOwed0: ethers.formatUnits(position.tokensOwed0, token0Info.decimals),
+            tokensOwed1: ethers.formatUnits(position.tokensOwed1, token1Info.decimals),
+          });
+        }
+      } catch (posErr: any) {
+        console.warn(`Error fetching position ${i}:`, posErr.message);
+      }
+    }
+
+    return positions;
+  } catch (error: any) {
+    console.error("Uniswap V3 positions fetch error:", error.message);
+    return positions;
+  }
+}
+
+// Endpoint to fetch liquidity pool positions
+router.get("/me/liquidity-positions", requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) {
+      return res.status(500).json({ error: "Database not configured" });
+    }
+
+    // Get all wallets for the user
+    const { data: wallets } = await supabase
+      .from("wallets")
+      .select("id, address, label")
+      .eq("user_id", req.userId);
+
+    if (!wallets || wallets.length === 0) {
+      return res.json({ positions: [], wallets: [] });
+    }
+
+    // Fetch positions for the first wallet (or specified wallet)
+    const walletAddress = req.query.wallet as string || wallets[0]?.address;
+    
+    if (!walletAddress) {
+      return res.json({ positions: [], wallets });
+    }
+
+    const positions = await fetchUniswapV3Positions(walletAddress);
+
+    // Fetch current prices for USD value calculation
+    const prices = await fetchCurrentPrices();
+
+    // Calculate approximate USD values for positions
+    // Note: This is a simplified calculation - real LP value requires more complex math
+    const positionsWithValue = positions.map((pos) => {
+      const token0Price = prices[pos.token0.symbol] || 0;
+      const token1Price = prices[pos.token1.symbol] || 0;
+      
+      // Estimate value from owed tokens (claimable rewards)
+      const owedValue0 = parseFloat(pos.tokensOwed0) * token0Price;
+      const owedValue1 = parseFloat(pos.tokensOwed1) * token1Price;
+      
+      return {
+        ...pos,
+        token0_price: token0Price,
+        token1_price: token1Price,
+        rewards_usd: owedValue0 + owedValue1,
+      };
+    });
+
+    res.json({
+      positions: positionsWithValue,
+      wallets: wallets.map((w: any) => ({ id: w.id, address: w.address, label: w.label })),
+      selected_wallet: walletAddress,
+    });
+  } catch (error: any) {
+    console.error("Liquidity positions error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint to add a new wallet
+router.post("/me/wallets", requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) {
+      return res.status(500).json({ error: "Database not configured" });
+    }
+
+    const { address, label } = req.body;
+
+    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return res.status(400).json({ error: "Invalid wallet address" });
+    }
+
+    // Check if wallet already exists for this user
+    const { data: existing } = await supabase
+      .from("wallets")
+      .select("id")
+      .eq("user_id", req.userId)
+      .eq("address", address.toLowerCase())
+      .single();
+
+    if (existing) {
+      return res.status(400).json({ error: "Wallet already added" });
+    }
+
+    // Insert new wallet
+    const { data, error } = await supabase
+      .from("wallets")
+      .insert({
+        user_id: req.userId,
+        address: address.toLowerCase(),
+        label: label || `Wallet ${address.slice(0, 6)}...${address.slice(-4)}`,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ wallet: data });
+  } catch (error: any) {
+    console.error("Add wallet error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint to get all user wallets
+router.get("/me/wallets", requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) {
+      return res.status(500).json({ error: "Database not configured" });
+    }
+
+    const { data: wallets, error } = await supabase
+      .from("wallets")
+      .select("id, address, label, created_at")
+      .eq("user_id", req.userId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    res.json({ wallets: wallets || [] });
+  } catch (error: any) {
+    console.error("Get wallets error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint to delete a wallet
+router.delete("/me/wallets/:walletId", requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) {
+      return res.status(500).json({ error: "Database not configured" });
+    }
+
+    const { walletId } = req.params;
+
+    const { error } = await supabase
+      .from("wallets")
+      .delete()
+      .eq("id", walletId)
+      .eq("user_id", req.userId);
+
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Delete wallet error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;

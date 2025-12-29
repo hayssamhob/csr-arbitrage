@@ -33,6 +33,27 @@ interface VenueBalance {
   contract_address?: string;
 }
 
+interface LiquidityPosition {
+  tokenId: string;
+  token0: { address: string; symbol: string; decimals: number };
+  token1: { address: string; symbol: string; decimals: number };
+  fee: number;
+  liquidity: string;
+  tickLower: number;
+  tickUpper: number;
+  tokensOwed0: string;
+  tokensOwed1: string;
+  token0_price: number;
+  token1_price: number;
+  rewards_usd: number;
+}
+
+interface UserWallet {
+  id: string;
+  address: string;
+  label: string;
+}
+
 // Helper to get exchange URL for an asset
 function getExchangeUrl(venue: string, asset: string): string | null {
   const venueUrls: Record<string, Record<string, string>> = {
@@ -178,6 +199,15 @@ export function InventoryPage() {
   const [recentTxs, setRecentTxs] = useState<RecentTransaction[]>([]);
   const [loadingTxs, setLoadingTxs] = useState(false);
 
+  // Liquidity positions and wallet management
+  const [lpPositions, setLpPositions] = useState<LiquidityPosition[]>([]);
+  const [userWallets, setUserWallets] = useState<UserWallet[]>([]);
+  const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
+  const [loadingLp, setLoadingLp] = useState(false);
+  const [showAddWallet, setShowAddWallet] = useState(false);
+  const [newWalletAddress, setNewWalletAddress] = useState("");
+  const [newWalletLabel, setNewWalletLabel] = useState("");
+
   useEffect(() => {
     if (user) {
       // Fetch if no cache or cache is stale
@@ -203,6 +233,95 @@ export function InventoryPage() {
       fetchRecentTransactions(addressToUse);
     }
   }, [wallet.address, state.saved_wallet_address]);
+
+  // Fetch liquidity positions and user wallets
+  useEffect(() => {
+    if (user) {
+      fetchLiquidityPositions();
+      fetchUserWallets();
+    }
+  }, [user, selectedWallet]);
+
+  const fetchLiquidityPositions = async () => {
+    setLoadingLp(true);
+    try {
+      const token = await getAccessToken();
+      const walletParam = selectedWallet ? `?wallet=${selectedWallet}` : "";
+      const res = await fetch(
+        `${API_URL}/api/me/liquidity-positions${walletParam}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setLpPositions(data.positions || []);
+        if (data.wallets?.length > 0 && !selectedWallet) {
+          setSelectedWallet(data.selected_wallet);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch LP positions:", err);
+    }
+    setLoadingLp(false);
+  };
+
+  const fetchUserWallets = async () => {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/me/wallets`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserWallets(data.wallets || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch wallets:", err);
+    }
+  };
+
+  const handleAddWallet = async () => {
+    if (!newWalletAddress) return;
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/me/wallets`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          address: newWalletAddress,
+          label: newWalletLabel,
+        }),
+      });
+      if (res.ok) {
+        setNewWalletAddress("");
+        setNewWalletLabel("");
+        setShowAddWallet(false);
+        fetchUserWallets();
+        fetchLiquidityPositions();
+      }
+    } catch (err) {
+      console.error("Failed to add wallet:", err);
+    }
+  };
+
+  const handleDeleteWallet = async (walletId: string) => {
+    if (!confirm("Are you sure you want to remove this wallet?")) return;
+    try {
+      const token = await getAccessToken();
+      await fetch(`${API_URL}/api/me/wallets/${walletId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchUserWallets();
+      fetchLiquidityPositions();
+    } catch (err) {
+      console.error("Failed to delete wallet:", err);
+    }
+  };
 
   const fetchRecentTransactions = async (address: string) => {
     setLoadingTxs(true);
@@ -480,6 +599,240 @@ export function InventoryPage() {
             </div>
           ))}
         </div>
+
+        {/* Wallet Selector */}
+        {userWallets.length > 0 && (
+          <div className="mt-6 bg-slate-900/50 rounded-xl border border-slate-700 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold">🔐 Wallets</h3>
+              <button
+                onClick={() => setShowAddWallet(true)}
+                className="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-500 rounded-lg"
+              >
+                + Add Wallet
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {userWallets.map((w) => (
+                <div
+                  key={w.id}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all ${
+                    selectedWallet === w.address
+                      ? "bg-emerald-600/30 border border-emerald-500"
+                      : "bg-slate-800 hover:bg-slate-700 border border-slate-700"
+                  }`}
+                  onClick={() => setSelectedWallet(w.address)}
+                >
+                  <span className="text-sm font-medium">
+                    {w.label ||
+                      `${w.address.slice(0, 6)}...${w.address.slice(-4)}`}
+                  </span>
+                  <a
+                    href={`https://etherscan.io/address/${w.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-slate-400 hover:text-white"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    ↗
+                  </a>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteWallet(w.id);
+                    }}
+                    className="text-slate-400 hover:text-red-400 ml-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Add Wallet Modal */}
+        {showAddWallet && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-bold mb-4">Add Wallet</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">
+                    Wallet Address
+                  </label>
+                  <input
+                    type="text"
+                    value={newWalletAddress}
+                    onChange={(e) => setNewWalletAddress(e.target.value)}
+                    placeholder="0x..."
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">
+                    Label (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newWalletLabel}
+                    onChange={(e) => setNewWalletLabel(e.target.value)}
+                    placeholder="My Trading Wallet"
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowAddWallet(false)}
+                  className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddWallet}
+                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500"
+                >
+                  Add Wallet
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Liquidity Pool Positions */}
+        {lpPositions.length > 0 && (
+          <div className="mt-6 bg-slate-900/50 rounded-xl border border-slate-700 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold">
+                🌊 Uniswap V3 Liquidity Positions
+              </h3>
+              <span className="text-sm text-slate-400">
+                {lpPositions.length} position{lpPositions.length > 1 ? "s" : ""}
+              </span>
+            </div>
+            {loadingLp ? (
+              <div className="text-center text-slate-500 py-4">
+                Loading LP positions...
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {lpPositions.map((pos) => (
+                  <div
+                    key={pos.tokenId}
+                    className="bg-slate-800/50 rounded-lg p-4 border border-slate-700"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-pink-400 text-sm font-medium">
+                          Liquidity Pool
+                        </span>
+                        <a
+                          href={`https://app.uniswap.org/pool/${pos.tokenId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-slate-400 hover:text-white text-xs font-mono"
+                        >
+                          #{pos.tokenId} ↗
+                        </a>
+                      </div>
+                      <span className="text-xs text-slate-400">
+                        Fee: {pos.fee / 10000}%
+                      </span>
+                    </div>
+
+                    {/* Supplied */}
+                    <div className="mb-3">
+                      <div className="text-xs text-slate-500 uppercase mb-1">
+                        Supplied
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div className="text-slate-400">Token</div>
+                        <div className="text-slate-400 text-right">Amount</div>
+                        <div className="text-slate-400 text-right">
+                          USD Value
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm mt-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-emerald-400">●</span>
+                          <span>{pos.token0.symbol}</span>
+                        </div>
+                        <div className="text-right font-mono">—</div>
+                        <div className="text-right font-mono">—</div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm mt-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-blue-400">●</span>
+                          <span>{pos.token1.symbol}</span>
+                        </div>
+                        <div className="text-right font-mono">—</div>
+                        <div className="text-right font-mono">—</div>
+                      </div>
+                    </div>
+
+                    {/* Rewards */}
+                    <div className="mb-3">
+                      <div className="text-xs text-slate-500 uppercase mb-1">
+                        Claimable Rewards
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div className="flex items-center gap-1">
+                          <span className="text-emerald-400">●</span>
+                          <span>{pos.token0.symbol}</span>
+                        </div>
+                        <div className="text-right font-mono">
+                          {parseFloat(pos.tokensOwed0).toFixed(4)}
+                        </div>
+                        <div className="text-right font-mono text-slate-400">
+                          $
+                          {(
+                            parseFloat(pos.tokensOwed0) * pos.token0_price
+                          ).toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm mt-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-blue-400">●</span>
+                          <span>{pos.token1.symbol}</span>
+                        </div>
+                        <div className="text-right font-mono">
+                          {parseFloat(pos.tokensOwed1).toFixed(4)}
+                        </div>
+                        <div className="text-right font-mono text-slate-400">
+                          $
+                          {(
+                            parseFloat(pos.tokensOwed1) * pos.token1_price
+                          ).toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                      <a
+                        href={`https://app.uniswap.org/pool/${pos.tokenId}?chain=mainnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 text-center px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm"
+                      >
+                        Withdraw
+                      </a>
+                      <a
+                        href={`https://app.uniswap.org/pool/${pos.tokenId}?chain=mainnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 text-center px-3 py-2 bg-pink-600 hover:bg-pink-500 rounded-lg text-sm"
+                      >
+                        Claim
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Risk Limits */}
         <div className="mt-6 bg-slate-900/50 rounded-xl border border-slate-700 p-4">
