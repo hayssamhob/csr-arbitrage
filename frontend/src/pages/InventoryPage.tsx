@@ -8,6 +8,9 @@
  */
 
 import { useEffect, useState } from "react";
+import { useAuth } from "../contexts/AuthContext";
+
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 interface VenueBalance {
   venue: string;
@@ -18,9 +21,15 @@ interface VenueBalance {
   usd_value: number;
 }
 
+interface ExchangeStatus {
+  connected: boolean;
+  error: string | null;
+}
+
 interface InventoryState {
   balances: VenueBalance[];
   total_usd: number;
+  exchange_statuses: Record<string, ExchangeStatus>;
   exposure: {
     max_per_trade_usd: number;
     max_daily_usd: number;
@@ -30,9 +39,11 @@ interface InventoryState {
 }
 
 export function InventoryPage() {
+  const { user, getAccessToken } = useAuth();
   const [state, setState] = useState<InventoryState>({
     balances: [],
     total_usd: 0,
+    exchange_statuses: {},
     exposure: {
       max_per_trade_usd: 1000,
       max_daily_usd: 10000,
@@ -41,26 +52,57 @@ export function InventoryPage() {
     last_update: "",
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // No real API connected yet - show empty state
-    setState({
-      balances: [],
-      total_usd: 0,
-      exposure: {
-        max_per_trade_usd: 1000,
-        max_daily_usd: 10000,
-        used_daily_usd: 0,
-      },
-      last_update: new Date().toISOString(),
-    });
+    if (user) {
+      fetchBalances();
+    } else {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const fetchBalances = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`${API_URL}/api/me/balances`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setState({
+          balances: data.balances || [],
+          total_usd: data.total_usd || 0,
+          exchange_statuses: data.exchange_statuses || {},
+          exposure: data.exposure || {
+            max_per_trade_usd: 1000,
+            max_daily_usd: 10000,
+            used_daily_usd: 0,
+          },
+          last_update: data.last_update || new Date().toISOString(),
+        });
+      } else {
+        const errData = await res.json();
+        setError(errData.error || "Failed to fetch balances");
+      }
+    } catch (err: any) {
+      setError(err.message || "Network error");
+    }
     setLoading(false);
-  }, []);
+  };
 
   const venues = ["Wallet", "LBank", "LATOKEN"];
-  const getVenueBalances = (venue: string) => state.balances.filter((b) => b.venue === venue);
+  const getVenueBalances = (venue: string) =>
+    state.balances.filter((b) => b.venue === venue);
   const getVenueTotal = (venue: string) =>
-    state.balances.filter((b) => b.venue === venue).reduce((sum, b) => sum + b.usd_value, 0);
+    state.balances
+      .filter((b) => b.venue === venue)
+      .reduce((sum, b) => sum + b.usd_value, 0);
 
   if (loading) {
     return (
@@ -123,25 +165,36 @@ export function InventoryPage() {
           </div>
         </div>
 
-        {/* Connection Required Notice */}
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 mb-6">
-          <div className="flex items-start gap-4">
-            <span className="text-2xl">🔗</span>
-            <div>
-              <h3 className="font-semibold text-amber-400 mb-2">
-                Connect Your Accounts
-              </h3>
-              <p className="text-slate-400 text-sm mb-3">
-                To view your balances and enable trading, you need to:
-              </p>
-              <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside">
-                <li>Sign in with your email (click "Connect" in the navbar)</li>
-                <li>Go to Settings and add your exchange API keys</li>
-                <li>Connect your wallet address</li>
-              </ol>
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6">
+            <p className="text-red-400 text-sm">⚠️ {error}</p>
+          </div>
+        )}
+
+        {/* Connection Required Notice - show only when not logged in or no exchanges configured */}
+        {(!user || Object.keys(state.exchange_statuses).length === 0) && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 mb-6">
+            <div className="flex items-start gap-4">
+              <span className="text-2xl">🔗</span>
+              <div>
+                <h3 className="font-semibold text-amber-400 mb-2">
+                  Connect Your Accounts
+                </h3>
+                <p className="text-slate-400 text-sm mb-3">
+                  To view your balances and enable trading, you need to:
+                </p>
+                <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside">
+                  <li>
+                    Sign in with your email (click "Connect" in the navbar)
+                  </li>
+                  <li>Go to Settings and add your exchange API keys</li>
+                  <li>Connect your wallet address</li>
+                </ol>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Venue Balances */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -190,8 +243,23 @@ export function InventoryPage() {
                   </div>
                 ))}
                 {getVenueBalances(venue).length === 0 && (
-                  <div className="px-4 py-6 text-center text-slate-500 text-sm">
-                    Not connected
+                  <div className="px-4 py-6 text-center text-sm">
+                    {state.exchange_statuses[venue.toLowerCase()]?.connected ? (
+                      <div>
+                        <span className="text-emerald-400">✓ Connected</span>
+                        {state.exchange_statuses[venue.toLowerCase()]
+                          ?.error && (
+                          <p className="text-xs text-slate-500 mt-1">
+                            {
+                              state.exchange_statuses[venue.toLowerCase()]
+                                ?.error
+                            }
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-slate-500">Not connected</span>
+                    )}
                   </div>
                 )}
               </div>

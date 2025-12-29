@@ -20,6 +20,8 @@ interface RiskLimits {
 interface ExchangeStatus {
   venue: string;
   connected: boolean;
+  api_key_masked: string | null;
+  has_secret: boolean;
   last_test_ok: boolean | null;
   last_test_error: string | null;
   last_test_at: string | null;
@@ -152,8 +154,15 @@ export function SettingsPage() {
     const apiKey = venue === "lbank" ? lbankKey : latokenKey;
     const apiSecret = venue === "lbank" ? lbankSecret : latokenSecret;
 
-    if (!apiKey || !apiSecret) {
-      setMessage({ type: "error", text: "API Key and Secret are required" });
+    if (!apiKey) {
+      setMessage({ type: "error", text: "API Key is required" });
+      setSavingExchange(null);
+      return;
+    }
+
+    // LATOKEN requires both key and secret
+    if (venue === "latoken" && !apiSecret) {
+      setMessage({ type: "error", text: "API Secret is required for LATOKEN" });
       setSavingExchange(null);
       return;
     }
@@ -301,22 +310,33 @@ export function SettingsPage() {
           <div className="mb-6 p-4 bg-slate-800/50 rounded-lg">
             <div className="flex items-center justify-between mb-3">
               <span className="font-medium">LBank</span>
-              {getExchangeStatus("lbank") ? (
-                <span
-                  className={
-                    getExchangeStatus("lbank")?.last_test_ok
-                      ? "text-emerald-400 text-sm"
-                      : "text-amber-400 text-sm"
-                  }
-                >
-                  {getExchangeStatus("lbank")?.last_test_ok
-                    ? "✓ Connected"
-                    : "⚠ Configured"}
-                </span>
-              ) : (
-                <span className="text-slate-500 text-sm">Not configured</span>
-              )}
+              <div className="flex items-center gap-2">
+                {getExchangeStatus("lbank")?.api_key_masked && (
+                  <span className="text-xs font-mono text-slate-400 bg-slate-700/50 px-2 py-1 rounded">
+                    🔑 {getExchangeStatus("lbank")?.api_key_masked}
+                  </span>
+                )}
+                {getExchangeStatus("lbank") ? (
+                  <span
+                    className={
+                      getExchangeStatus("lbank")?.last_test_ok
+                        ? "text-emerald-400 text-sm"
+                        : "text-amber-400 text-sm"
+                    }
+                  >
+                    {getExchangeStatus("lbank")?.last_test_ok
+                      ? "✓ Connected"
+                      : "⚠ Configured"}
+                  </span>
+                ) : (
+                  <span className="text-slate-500 text-sm">Not configured</span>
+                )}
+              </div>
             </div>
+            <p className="text-xs text-slate-500 mb-3">
+              LBank only requires an API key (no secret needed for read-only
+              access)
+            </p>
             <div className="grid grid-cols-1 gap-3">
               <input
                 type="text"
@@ -327,7 +347,7 @@ export function SettingsPage() {
               />
               <input
                 type="password"
-                placeholder="API Secret"
+                placeholder="API Secret (optional)"
                 value={lbankSecret}
                 onChange={(e) => setLbankSecret(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm"
@@ -338,7 +358,7 @@ export function SettingsPage() {
                   disabled={savingExchange === "lbank"}
                   className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded"
                 >
-                  {savingExchange === "lbank" ? "Saving..." : "Save LBank Keys"}
+                  {savingExchange === "lbank" ? "Saving..." : "Save LBank Key"}
                 </button>
                 {getExchangeStatus("lbank") && (
                   <button
@@ -362,21 +382,29 @@ export function SettingsPage() {
           <div className="p-4 bg-slate-800/50 rounded-lg">
             <div className="flex items-center justify-between mb-3">
               <span className="font-medium">LATOKEN</span>
-              {getExchangeStatus("latoken") ? (
-                <span
-                  className={
-                    getExchangeStatus("latoken")?.last_test_ok
-                      ? "text-emerald-400 text-sm"
-                      : "text-amber-400 text-sm"
-                  }
-                >
-                  {getExchangeStatus("latoken")?.last_test_ok
-                    ? "✓ Connected"
-                    : "⚠ Configured"}
-                </span>
-              ) : (
-                <span className="text-slate-500 text-sm">Not configured</span>
-              )}
+              <div className="flex items-center gap-2">
+                {getExchangeStatus("latoken")?.api_key_masked && (
+                  <span className="text-xs font-mono text-slate-400 bg-slate-700/50 px-2 py-1 rounded">
+                    🔑 {getExchangeStatus("latoken")?.api_key_masked}
+                    {getExchangeStatus("latoken")?.has_secret && " + 🔐"}
+                  </span>
+                )}
+                {getExchangeStatus("latoken") ? (
+                  <span
+                    className={
+                      getExchangeStatus("latoken")?.last_test_ok
+                        ? "text-emerald-400 text-sm"
+                        : "text-amber-400 text-sm"
+                    }
+                  >
+                    {getExchangeStatus("latoken")?.last_test_ok
+                      ? "✓ Connected"
+                      : "⚠ Configured"}
+                  </span>
+                ) : (
+                  <span className="text-slate-500 text-sm">Not configured</span>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3">
               <input

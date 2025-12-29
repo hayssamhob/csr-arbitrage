@@ -237,7 +237,18 @@ router.delete(
   }
 );
 
-// GET /api/me/exchanges - Returns status only, NO secrets
+// Helper to mask API key (show first 4 and last 4 chars)
+function maskApiKey(encryptedKey: string): string {
+  try {
+    const key = decrypt(encryptedKey);
+    if (key.length <= 8) return '****';
+    return key.slice(0, 4) + '****' + key.slice(-4);
+  } catch {
+    return '****';
+  }
+}
+
+// GET /api/me/exchanges - Returns status and masked keys
 router.get(
   "/exchanges",
   requireAuth,
@@ -250,7 +261,7 @@ router.get(
     const { data, error } = await supabase
       .from("exchange_credentials")
       .select(
-        "id, venue, last_test_ok, last_test_error, last_test_at, created_at, updated_at"
+        "id, venue, api_key_enc, api_secret_enc, last_test_ok, last_test_error, last_test_at, created_at, updated_at"
       )
       .eq("user_id", req.userId);
 
@@ -258,10 +269,12 @@ router.get(
       return res.status(500).json({ error: error.message });
     }
 
-    // Transform to status-only format
+    // Transform to status format with masked keys
     const exchanges = (data || []).map((cred: any) => ({
       venue: cred.venue,
       connected: true,
+      api_key_masked: cred.api_key_enc ? maskApiKey(cred.api_key_enc) : null,
+      has_secret: !!cred.api_secret_enc,
       last_test_ok: cred.last_test_ok,
       last_test_error: cred.last_test_error,
       last_test_at: cred.last_test_at,
@@ -291,10 +304,15 @@ router.post(
 
     const { api_key, api_secret, api_passphrase } = req.body;
 
-    if (!api_key || !api_secret) {
+    // LBank only requires API key, LATOKEN requires both
+    if (!api_key) {
+      return res.status(400).json({ error: "api_key is required" });
+    }
+
+    if (venue === "latoken" && !api_secret) {
       return res
         .status(400)
-        .json({ error: "api_key and api_secret are required" });
+        .json({ error: "api_secret is required for LATOKEN" });
     }
 
     if (!getCexSecretsKey()) {
@@ -303,7 +321,7 @@ router.post(
 
     try {
       const encryptedKey = encrypt(api_key);
-      const encryptedSecret = encrypt(api_secret);
+      const encryptedSecret = api_secret ? encrypt(api_secret) : null;
       const encryptedPassphrase = api_passphrase
         ? encrypt(api_passphrase)
         : null;
@@ -422,5 +440,131 @@ router.post(
     }
   }
 );
+
+// GET /api/me/balances - Fetch balances from all connected exchanges
+router.get("/balances", requireAuth, async (req: AuthenticatedRequest, res) => {
+  const supabase = getSupabase();
+  if (!supabase) {
+    return res.status(503).json({ error: "Database not configured" });
+  }
+
+  // Get all exchange credentials for user
+  const { data: credentials, error } = await supabase
+    .from("exchange_credentials")
+    .select("venue, api_key_enc, api_secret_enc")
+    .eq("user_id", req.userId);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  const balances: any[] = [];
+  const exchangeStatuses: any = {};
+
+  // Process each exchange
+  for (const cred of credentials || []) {
+    try {
+      const apiKey = decrypt(cred.api_key_enc);
+      const apiSecret = cred.api_secret_enc
+        ? decrypt(cred.api_secret_enc)
+        : null;
+
+      if (cred.venue === "latoken" && apiKey && apiSecret) {
+        // Fetch LATOKEN balances using their API
+        const latokenBalances = await fetchLatokenBalances(apiKey, apiSecret);
+        balances.push(...latokenBalances);
+        exchangeStatuses.latoken = { connected: true, error: null };
+      } else if (cred.venue === "lbank" && apiKey) {
+        // LBank public API for balance (requires authentication for private endpoints)
+        // For now, mark as connected but note balance fetch requires trading API
+        exchangeStatuses.lbank = {
+          connected: true,
+          error: "Balance fetch requires trading permissions",
+        };
+      }
+    } catch (err: any) {
+      console.error(`Error fetching ${cred.venue} balances:`, err.message);
+      exchangeStatuses[cred.venue] = { connected: false, error: err.message };
+    }
+  }
+
+  // Get risk limits
+  const { data: limits } = await supabase
+    .from("risk_limits")
+    .select("*")
+    .eq("user_id", req.userId)
+    .single();
+
+  res.json({
+    balances,
+    total_usd: balances.reduce((sum, b) => sum + (b.usd_value || 0), 0),
+    exchange_statuses: exchangeStatuses,
+    exposure: {
+      max_per_trade_usd: limits?.max_order_usdt || 1000,
+      max_daily_usd: limits?.daily_limit_usdt || 10000,
+      used_daily_usd: 0, // TODO: Track from trade history
+    },
+    last_update: new Date().toISOString(),
+  });
+});
+
+// Helper to fetch LATOKEN balances
+async function fetchLatokenBalances(
+  apiKey: string,
+  apiSecret: string
+): Promise<any[]> {
+  const crypto = require("crypto");
+  const timestamp = Date.now().toString();
+  const method = "GET";
+  const path = "/v2/auth/account";
+
+  // Create signature for LATOKEN API
+  const message = timestamp + method + path;
+  const signature = crypto
+    .createHmac("sha256", apiSecret)
+    .update(message)
+    .digest("hex");
+
+  try {
+    const response = await fetch(`https://api.latoken.com${path}`, {
+      method: "GET",
+      headers: {
+        "X-LA-APIKEY": apiKey,
+        "X-LA-SIGNATURE": signature,
+        "X-LA-DIGEST": "HMAC-SHA256",
+        "X-LA-SIGTIME": timestamp,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`LATOKEN API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    // Transform LATOKEN response to our format
+    // LATOKEN returns array of { currency, available, blocked, ... }
+    if (Array.isArray(data)) {
+      return data
+        .filter(
+          (b: any) => parseFloat(b.available) > 0 || parseFloat(b.blocked) > 0
+        )
+        .map((b: any) => ({
+          venue: "LATOKEN",
+          asset: b.currency?.toUpperCase() || b.id,
+          available: parseFloat(b.available) || 0,
+          locked: parseFloat(b.blocked) || 0,
+          total: (parseFloat(b.available) || 0) + (parseFloat(b.blocked) || 0),
+          usd_value: 0, // Would need price data to calculate
+        }));
+    }
+
+    return [];
+  } catch (err: any) {
+    console.error("LATOKEN balance fetch error:", err.message);
+    throw err;
+  }
+}
 
 export default router;
