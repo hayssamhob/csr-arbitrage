@@ -105,28 +105,98 @@ function TradeExecutionModal({
 
   // Calculate price impact based on trade size
   const basePriceImpact = opportunity.dex_price_impact;
-  const estimatedPriceImpact = basePriceImpact * Math.sqrt(tradeSize / opportunity.dex_quote_size);
-  
+  const estimatedPriceImpact =
+    basePriceImpact * Math.sqrt(tradeSize / opportunity.dex_quote_size);
+
   // Calculate estimated edge after price impact
   const priceImpactCost = (estimatedPriceImpact / 100) * tradeSize;
-  const estimatedEdgeUsd = (opportunity.edge_bps / 10000) * tradeSize - priceImpactCost;
+  const estimatedEdgeUsd =
+    (opportunity.edge_bps / 10000) * tradeSize - priceImpactCost;
   const estimatedEdgeBps = Math.round((estimatedEdgeUsd / tradeSize) * 10000);
 
   const handleExecute = async () => {
     setIsExecuting(true);
     try {
       if (mode === "PAPER") {
-        console.log("Paper trade executed:", { ...opportunity, size: tradeSize });
-        alert(`✅ PAPER TRADE: ${opportunity.direction.replace(/_/g, " ")} $${tradeSize} of ${opportunity.market}\nEstimated profit: $${estimatedEdgeUsd.toFixed(2)}`);
-      } else {
-        // Real trade execution would go here
-        console.log("Manual trade:", { ...opportunity, size: tradeSize });
-        alert(`⚠️ Real trade execution not yet implemented.\nWould execute: ${opportunity.direction.replace(/_/g, " ")} $${tradeSize} of ${opportunity.market}`);
+        console.log("Paper trade executed:", {
+          ...opportunity,
+          size: tradeSize,
+        });
+        alert(
+          `✅ PAPER TRADE: ${opportunity.direction.replace(
+            /_/g,
+            " "
+          )} $${tradeSize} of ${
+            opportunity.market
+          }\nEstimated profit: $${estimatedEdgeUsd.toFixed(2)}`
+        );
+        onClose();
+        return;
       }
+
+      // Get auth token
+      const authData = localStorage.getItem("auth");
+      if (!authData) {
+        alert("Please log in to execute trades");
+        setIsExecuting(false);
+        return;
+      }
+      const { accessToken } = JSON.parse(authData);
+
+      // Parse market to get token symbol
+      const token = opportunity.market.split("/")[0]; // CSR or CSR25
+      const cexSymbol = `${token}/USDT`;
+
+      // Determine trade direction
+      // BUY_DEX_SELL_CEX: Buy on Uniswap, Sell on CEX
+      // BUY_CEX_SELL_DEX: Buy on CEX, Sell on Uniswap
+
+      if (opportunity.direction === "BUY_CEX_SELL_DEX") {
+        // Step 1: Buy on CEX
+        const cexResponse = await fetch(`${API_URL}/api/me/trade/cex`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            exchange: opportunity.cex_venue.toLowerCase(),
+            symbol: cexSymbol,
+            side: "buy",
+            amount: tradeSize / opportunity.cex_ask, // Convert USDT to token amount
+          }),
+        });
+
+        const cexResult = await cexResponse.json();
+        if (!cexResult.success) {
+          throw new Error(`CEX trade failed: ${cexResult.error}`);
+        }
+
+        alert(
+          `✅ CEX BUY executed!\nOrder ID: ${cexResult.order.id}\nFilled: ${cexResult.order.filled} ${token}\n\n⚠️ To complete arbitrage, sell on Uniswap using your wallet.`
+        );
+      } else {
+        // BUY_DEX_SELL_CEX: First buy on DEX (user signs), then sell on CEX
+        // Step 1: Prepare DEX trade (user needs to sign)
+        alert(
+          `To execute this arbitrage:\n\n1. Buy ${token} on Uniswap (opens in new tab)\n2. Then sell on ${opportunity.cex_venue}\n\nOpening Uniswap...`
+        );
+
+        // Open Uniswap with pre-filled swap
+        const tokenAddress =
+          token === "CSR"
+            ? "0x6bba316c48b49bd1eac44573c5c871ff02958469"
+            : "0x0f5c78f152152dda52a2ea45b0a8c10733010748";
+        window.open(
+          `https://app.uniswap.org/swap?inputCurrency=0xdac17f958d2ee523a2206206994597c13d831ec7&outputCurrency=${tokenAddress}&exactAmount=${tradeSize}`,
+          "_blank"
+        );
+      }
+
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Trade execution error:", err);
-      alert("Trade execution failed. Check console for details.");
+      alert(`Trade execution failed: ${err.message}`);
     }
     setIsExecuting(false);
   };
@@ -138,45 +208,69 @@ function TradeExecutionModal({
           <h3 className="text-lg font-bold">
             {mode === "PAPER" ? "📝 Paper Trade" : "⚡ Execute Trade"}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            ✕
+          </button>
         </div>
 
         {/* Market Info */}
         <div className="bg-slate-800/50 rounded-lg p-4 mb-4">
           <div className="flex justify-between items-center mb-2">
             <span className="text-lg font-bold">{opportunity.market}</span>
-            <span className={`px-2 py-1 rounded text-xs font-medium ${
-              opportunity.direction === "BUY_DEX_SELL_CEX"
-                ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-blue-500/20 text-blue-400"
-            }`}>
+            <span
+              className={`px-2 py-1 rounded text-xs font-medium ${
+                opportunity.direction === "BUY_DEX_SELL_CEX"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : "bg-blue-500/20 text-blue-400"
+              }`}
+            >
               {opportunity.direction.replace(/_/g, " ")}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-slate-400">CEX ({opportunity.cex_venue}):</span>
+              <span className="text-slate-400">
+                CEX ({opportunity.cex_venue}):
+              </span>
               <div className="font-mono">
-                <span className="text-emerald-400">${opportunity.cex_bid.toFixed(6)}</span>
+                <span className="text-emerald-400">
+                  ${opportunity.cex_bid.toFixed(6)}
+                </span>
                 <span className="text-slate-500"> / </span>
-                <span className="text-red-400">${opportunity.cex_ask.toFixed(6)}</span>
+                <span className="text-red-400">
+                  ${opportunity.cex_ask.toFixed(6)}
+                </span>
               </div>
             </div>
             <div>
               <span className="text-slate-400">DEX (Uniswap):</span>
-              <div className="font-mono text-blue-400">${opportunity.dex_exec_price.toFixed(6)}</div>
+              <div className="font-mono text-blue-400">
+                ${opportunity.dex_exec_price.toFixed(6)}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Trade Size Input */}
         <div className="mb-4">
-          <label className="block text-sm text-slate-400 mb-2">Trade Size (USDT)</label>
+          <label className="block text-sm text-slate-400 mb-2">
+            Trade Size (USDT)
+          </label>
           <div className="flex items-center gap-2">
             <input
               type="number"
               value={tradeSize}
-              onChange={(e) => setTradeSize(Math.max(10, Math.min(parseFloat(e.target.value) || 0, opportunity.max_safe_size * 2)))}
+              onChange={(e) =>
+                setTradeSize(
+                  Math.max(
+                    10,
+                    Math.min(
+                      parseFloat(e.target.value) || 0,
+                      opportunity.max_safe_size * 2
+                    )
+                  )
+                )
+              }
               className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 font-mono text-lg"
               min={10}
               max={opportunity.max_safe_size * 2}
@@ -190,7 +284,8 @@ function TradeExecutionModal({
             </button>
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            Recommended max: ${opportunity.max_safe_size} • You entered: ${tradeSize}
+            Recommended max: ${opportunity.max_safe_size} • You entered: $
+            {tradeSize}
           </div>
         </div>
 
@@ -198,24 +293,41 @@ function TradeExecutionModal({
         <div className="bg-slate-800/30 rounded-lg p-4 mb-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <Tooltip text="Impact on DEX price from your trade size">
-              <span className="text-slate-400 cursor-help border-b border-dotted border-slate-500">Est. Price Impact:</span>
+              <span className="text-slate-400 cursor-help border-b border-dotted border-slate-500">
+                Est. Price Impact:
+              </span>
             </Tooltip>
-            <span className={`font-mono ${estimatedPriceImpact > 1 ? "text-amber-400" : "text-slate-300"}`}>
+            <span
+              className={`font-mono ${
+                estimatedPriceImpact > 1 ? "text-amber-400" : "text-slate-300"
+              }`}
+            >
               {estimatedPriceImpact.toFixed(2)}%
             </span>
           </div>
           <div className="flex justify-between">
             <Tooltip text="Cost of price impact on your trade">
-              <span className="text-slate-400 cursor-help border-b border-dotted border-slate-500">Impact Cost:</span>
+              <span className="text-slate-400 cursor-help border-b border-dotted border-slate-500">
+                Impact Cost:
+              </span>
             </Tooltip>
-            <span className="font-mono text-red-400">-${priceImpactCost.toFixed(2)}</span>
+            <span className="font-mono text-red-400">
+              -${priceImpactCost.toFixed(2)}
+            </span>
           </div>
           <div className="flex justify-between border-t border-slate-700 pt-2 mt-2">
             <Tooltip text="Expected profit after all costs">
-              <span className="text-slate-300 font-medium cursor-help border-b border-dotted border-slate-500">Estimated Profit:</span>
+              <span className="text-slate-300 font-medium cursor-help border-b border-dotted border-slate-500">
+                Estimated Profit:
+              </span>
             </Tooltip>
-            <span className={`font-mono font-bold ${estimatedEdgeUsd >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-              ${estimatedEdgeUsd.toFixed(2)} ({estimatedEdgeBps > 0 ? "+" : ""}{estimatedEdgeBps} bps)
+            <span
+              className={`font-mono font-bold ${
+                estimatedEdgeUsd >= 0 ? "text-emerald-400" : "text-red-400"
+              }`}
+            >
+              ${estimatedEdgeUsd.toFixed(2)} ({estimatedEdgeBps > 0 ? "+" : ""}
+              {estimatedEdgeBps} bps)
             </span>
           </div>
         </div>
@@ -224,7 +336,8 @@ function TradeExecutionModal({
         {estimatedPriceImpact > 2 && (
           <div className="bg-amber-900/30 border border-amber-600/30 rounded-lg p-3 mb-4">
             <p className="text-amber-400 text-sm">
-              ⚠️ High price impact ({estimatedPriceImpact.toFixed(1)}%). Consider reducing trade size.
+              ⚠️ High price impact ({estimatedPriceImpact.toFixed(1)}%).
+              Consider reducing trade size.
             </p>
           </div>
         )}
@@ -232,7 +345,8 @@ function TradeExecutionModal({
         {mode !== "PAPER" && (
           <div className="bg-yellow-900/30 border border-yellow-600/30 rounded-lg p-3 mb-4">
             <p className="text-yellow-400 text-sm">
-              ⚠️ This will execute real trades. Ensure you have sufficient balances on both venues.
+              ⚠️ This will execute real trades. Ensure you have sufficient
+              balances on both venues.
             </p>
           </div>
         )}
@@ -256,7 +370,11 @@ function TradeExecutionModal({
                 : "bg-emerald-600 text-white hover:bg-emerald-500"
             }`}
           >
-            {isExecuting ? "Executing..." : mode === "PAPER" ? "Simulate Trade" : "Execute Trade"}
+            {isExecuting
+              ? "Executing..."
+              : mode === "PAPER"
+              ? "Simulate Trade"
+              : "Execute Trade"}
           </button>
         </div>
       </div>
@@ -431,6 +549,35 @@ export function ArbitragePage() {
             Math.round(((dexPrice - cexMid) / cexMid) * 10000);
           const edgeUsd = (edgeBps / 10000) * 500;
 
+          // Calculate max safe size based on user's available balances
+          const userMaxSize = userInventory
+            ? calculateMaxTradeSize({
+                market: "CSR/USDT",
+                cex_venue: "LATOKEN",
+                cex_bid: csrLatoken.bid,
+                cex_ask: csrLatoken.ask,
+                cex_mid: cexMid,
+                cex_ts: csrLatoken.ts,
+                dex_exec_price: dexPrice,
+                dex_quote_size: 1000,
+                dex_price_impact: 0.5,
+                dex_gas_usd: 0.01,
+                dex_ts: csrDex.ts,
+                edge_bps: edgeBps,
+                edge_usd: edgeUsd,
+                max_safe_size: 10000, // High default, will be limited by balance
+                direction:
+                  csrDecision?.direction === "buy_dex_sell_cex"
+                    ? "BUY_DEX_SELL_CEX"
+                    : "BUY_CEX_SELL_DEX",
+                is_actionable: true,
+                reason: "",
+              })
+            : 1000; // Default if no inventory loaded
+
+          const maxSafeSize = Math.max(10, Math.min(userMaxSize, 10000));
+          const calculatedEdgeUsd = (edgeBps / 10000) * maxSafeSize;
+
           opportunities.push({
             market: "CSR/USDT",
             cex_venue: "LATOKEN",
@@ -439,13 +586,13 @@ export function ArbitragePage() {
             cex_mid: cexMid,
             cex_ts: csrLatoken.ts,
             dex_exec_price: dexPrice,
-            dex_quote_size: 500,
+            dex_quote_size: maxSafeSize,
             dex_price_impact: 0.5,
             dex_gas_usd: 0.01,
             dex_ts: csrDex.ts,
             edge_bps: edgeBps,
-            edge_usd: edgeUsd,
-            max_safe_size: 500,
+            edge_usd: calculatedEdgeUsd,
+            max_safe_size: maxSafeSize,
             direction:
               csrDecision?.direction === "buy_dex_sell_cex"
                 ? "BUY_DEX_SELL_CEX"
@@ -469,7 +616,38 @@ export function ArbitragePage() {
           const edgeBps =
             csr25Decision?.edge_after_costs_bps ??
             Math.round(((dexPrice - cexMid) / cexMid) * 10000);
-          const edgeUsd = (edgeBps / 10000) * 1000;
+
+          // Calculate max safe size based on user's available balances
+          const csr25UserMaxSize = userInventory
+            ? calculateMaxTradeSize({
+                market: "CSR25/USDT",
+                cex_venue: "LBank",
+                cex_bid: csr25Lbank.bid,
+                cex_ask: csr25Lbank.ask,
+                cex_mid: cexMid,
+                cex_ts: csr25Lbank.ts,
+                dex_exec_price: dexPrice,
+                dex_quote_size: 1000,
+                dex_price_impact: 0.3,
+                dex_gas_usd: 0.01,
+                dex_ts: csr25Dex.ts,
+                edge_bps: edgeBps,
+                edge_usd: 0,
+                max_safe_size: 10000,
+                direction:
+                  csr25Decision?.direction === "buy_dex_sell_cex"
+                    ? "BUY_DEX_SELL_CEX"
+                    : "BUY_CEX_SELL_DEX",
+                is_actionable: true,
+                reason: "",
+              })
+            : 1000;
+
+          const csr25MaxSafeSize = Math.max(
+            10,
+            Math.min(csr25UserMaxSize, 10000)
+          );
+          const csr25EdgeUsd = (edgeBps / 10000) * csr25MaxSafeSize;
 
           opportunities.push({
             market: "CSR25/USDT",
@@ -479,13 +657,13 @@ export function ArbitragePage() {
             cex_mid: cexMid,
             cex_ts: csr25Lbank.ts,
             dex_exec_price: dexPrice,
-            dex_quote_size: 1000,
+            dex_quote_size: csr25MaxSafeSize,
             dex_price_impact: 0.3,
             dex_gas_usd: 0.01,
             dex_ts: csr25Dex.ts,
             edge_bps: edgeBps,
-            edge_usd: edgeUsd,
-            max_safe_size: 1000,
+            edge_usd: csr25EdgeUsd,
+            max_safe_size: csr25MaxSafeSize,
             direction:
               csr25Decision?.direction === "buy_dex_sell_cex"
                 ? "BUY_DEX_SELL_CEX"

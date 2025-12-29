@@ -767,14 +767,15 @@ async function fetchCurrentPrices(): Promise<Record<string, number>> {
   };
 
   try {
-    // Fetch ETH price from CoinGecko
+    // Try CoinGecko first, fallback to hardcoded recent price
     const ethResponse = await axios.get(
       "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
-      { timeout: 5000 }
+      { timeout: 3000 }
     );
-    prices.ETH = ethResponse.data?.ethereum?.usd || 0;
+    prices.ETH = ethResponse.data?.ethereum?.usd || 3400; // Fallback to recent price
   } catch (err) {
-    console.warn("Failed to fetch ETH price");
+    // Use approximate current ETH price as fallback
+    prices.ETH = 3400;
   }
 
   // Fetch CSR/CSR25 prices from our own dashboard API
@@ -815,6 +816,28 @@ function calculateUsdValues(
 // Uniswap V3 Position Manager contract address
 const UNISWAP_V3_POSITIONS_NFT = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88";
 
+// Uniswap V2 pair contracts for CSR tokens
+const UNISWAP_V2_PAIRS: Record<
+  string,
+  { token0: string; token1: string; name: string }
+> = {
+  // CSR/WETH pair on Uniswap V2 (if exists)
+  "0x0000000000000000000000000000000000000000": {
+    token0: "CSR",
+    token1: "WETH",
+    name: "CSR/WETH",
+  },
+};
+
+// V2 LP Token ABI (just balanceOf and totalSupply for now)
+const V2_LP_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function totalSupply() view returns (uint256)",
+  "function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function token0() view returns (address)",
+  "function token1() view returns (address)",
+];
+
 // ABI for Uniswap V3 NonfungiblePositionManager
 const POSITION_MANAGER_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -825,10 +848,16 @@ const POSITION_MANAGER_ABI = [
 // Token symbol mapping
 const TOKEN_SYMBOLS: Record<string, { symbol: string; decimals: number }> = {
   "0x6bba316c48b49bd1eac44573c5c871ff02958469": { symbol: "CSR", decimals: 18 },
-  "0x0f5c78f152152dda52a2ea45b0a8c10733010748": { symbol: "CSR25", decimals: 18 },
+  "0x0f5c78f152152dda52a2ea45b0a8c10733010748": {
+    symbol: "CSR25",
+    decimals: 18,
+  },
   "0xdac17f958d2ee523a2206206994597c13d831ec7": { symbol: "USDT", decimals: 6 },
   "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },
-  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": { symbol: "WETH", decimals: 18 },
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": {
+    symbol: "WETH",
+    decimals: 18,
+  },
 };
 
 // Helper to fetch Uniswap V3 liquidity positions for a wallet
@@ -850,19 +879,30 @@ async function fetchUniswapV3Positions(walletAddress: string): Promise<any[]> {
     const balance = await positionManager.balanceOf(walletAddress);
     const numPositions = Number(balance);
 
-    console.log(`Found ${numPositions} Uniswap V3 positions for ${walletAddress}`);
+    console.log(
+      `Found ${numPositions} Uniswap V3 positions for ${walletAddress}`
+    );
 
     // Fetch each position
     for (let i = 0; i < Math.min(numPositions, 10); i++) {
       // Limit to 10 positions
       try {
-        const tokenId = await positionManager.tokenOfOwnerByIndex(walletAddress, i);
+        const tokenId = await positionManager.tokenOfOwnerByIndex(
+          walletAddress,
+          i
+        );
         const position = await positionManager.positions(tokenId);
 
         const token0Address = position.token0.toLowerCase();
         const token1Address = position.token1.toLowerCase();
-        const token0Info = TOKEN_SYMBOLS[token0Address] || { symbol: token0Address.slice(0, 8), decimals: 18 };
-        const token1Info = TOKEN_SYMBOLS[token1Address] || { symbol: token1Address.slice(0, 8), decimals: 18 };
+        const token0Info = TOKEN_SYMBOLS[token0Address] || {
+          symbol: token0Address.slice(0, 8),
+          decimals: 18,
+        };
+        const token1Info = TOKEN_SYMBOLS[token1Address] || {
+          symbol: token1Address.slice(0, 8),
+          decimals: 18,
+        };
 
         // Only include positions with liquidity > 0
         if (Number(position.liquidity) > 0) {
@@ -882,8 +922,14 @@ async function fetchUniswapV3Positions(walletAddress: string): Promise<any[]> {
             liquidity: position.liquidity.toString(),
             tickLower: Number(position.tickLower),
             tickUpper: Number(position.tickUpper),
-            tokensOwed0: ethers.formatUnits(position.tokensOwed0, token0Info.decimals),
-            tokensOwed1: ethers.formatUnits(position.tokensOwed1, token1Info.decimals),
+            tokensOwed0: ethers.formatUnits(
+              position.tokensOwed0,
+              token0Info.decimals
+            ),
+            tokensOwed1: ethers.formatUnits(
+              position.tokensOwed1,
+              token1Info.decimals
+            ),
           });
         }
       } catch (posErr: any) {
@@ -899,156 +945,397 @@ async function fetchUniswapV3Positions(walletAddress: string): Promise<any[]> {
 }
 
 // Endpoint to fetch liquidity pool positions
-router.get("/me/liquidity-positions", requireAuth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: "Database not configured" });
+router.get(
+  "/me/liquidity-positions",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const supabase = getSupabase();
+      if (!supabase) {
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      // Get all wallets for the user
+      const { data: wallets } = await supabase
+        .from("wallets")
+        .select("id, address, label")
+        .eq("user_id", req.userId);
+
+      if (!wallets || wallets.length === 0) {
+        return res.json({ positions: [], wallets: [] });
+      }
+
+      // Fetch positions for the first wallet (or specified wallet)
+      const walletAddress = (req.query.wallet as string) || wallets[0]?.address;
+
+      if (!walletAddress) {
+        return res.json({ positions: [], wallets });
+      }
+
+      const positions = await fetchUniswapV3Positions(walletAddress);
+
+      // Fetch current prices for USD value calculation
+      const prices = await fetchCurrentPrices();
+
+      // Calculate approximate USD values for positions
+      // Note: This is a simplified calculation - real LP value requires more complex math
+      const positionsWithValue = positions.map((pos) => {
+        const token0Price = prices[pos.token0.symbol] || 0;
+        const token1Price = prices[pos.token1.symbol] || 0;
+
+        // Estimate value from owed tokens (claimable rewards)
+        const owedValue0 = parseFloat(pos.tokensOwed0) * token0Price;
+        const owedValue1 = parseFloat(pos.tokensOwed1) * token1Price;
+
+        return {
+          ...pos,
+          token0_price: token0Price,
+          token1_price: token1Price,
+          rewards_usd: owedValue0 + owedValue1,
+        };
+      });
+
+      res.json({
+        positions: positionsWithValue,
+        wallets: wallets.map((w: any) => ({
+          id: w.id,
+          address: w.address,
+          label: w.label,
+        })),
+        selected_wallet: walletAddress,
+      });
+    } catch (error: any) {
+      console.error("Liquidity positions error:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    // Get all wallets for the user
-    const { data: wallets } = await supabase
-      .from("wallets")
-      .select("id, address, label")
-      .eq("user_id", req.userId);
-
-    if (!wallets || wallets.length === 0) {
-      return res.json({ positions: [], wallets: [] });
-    }
-
-    // Fetch positions for the first wallet (or specified wallet)
-    const walletAddress = req.query.wallet as string || wallets[0]?.address;
-    
-    if (!walletAddress) {
-      return res.json({ positions: [], wallets });
-    }
-
-    const positions = await fetchUniswapV3Positions(walletAddress);
-
-    // Fetch current prices for USD value calculation
-    const prices = await fetchCurrentPrices();
-
-    // Calculate approximate USD values for positions
-    // Note: This is a simplified calculation - real LP value requires more complex math
-    const positionsWithValue = positions.map((pos) => {
-      const token0Price = prices[pos.token0.symbol] || 0;
-      const token1Price = prices[pos.token1.symbol] || 0;
-      
-      // Estimate value from owed tokens (claimable rewards)
-      const owedValue0 = parseFloat(pos.tokensOwed0) * token0Price;
-      const owedValue1 = parseFloat(pos.tokensOwed1) * token1Price;
-      
-      return {
-        ...pos,
-        token0_price: token0Price,
-        token1_price: token1Price,
-        rewards_usd: owedValue0 + owedValue1,
-      };
-    });
-
-    res.json({
-      positions: positionsWithValue,
-      wallets: wallets.map((w: any) => ({ id: w.id, address: w.address, label: w.label })),
-      selected_wallet: walletAddress,
-    });
-  } catch (error: any) {
-    console.error("Liquidity positions error:", error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // Endpoint to add a new wallet
-router.post("/me/wallets", requireAuth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: "Database not configured" });
+router.post(
+  "/me/wallets",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const supabase = getSupabase();
+      if (!supabase) {
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      const { address, label } = req.body;
+
+      if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        return res.status(400).json({ error: "Invalid wallet address" });
+      }
+
+      // Check if wallet already exists for this user
+      const { data: existing } = await supabase
+        .from("wallets")
+        .select("id")
+        .eq("user_id", req.userId)
+        .eq("address", address.toLowerCase())
+        .single();
+
+      if (existing) {
+        return res.status(400).json({ error: "Wallet already added" });
+      }
+
+      // Insert new wallet
+      const { data, error } = await supabase
+        .from("wallets")
+        .insert({
+          user_id: req.userId,
+          address: address.toLowerCase(),
+          label:
+            label || `Wallet ${address.slice(0, 6)}...${address.slice(-4)}`,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      res.json({ wallet: data });
+    } catch (error: any) {
+      console.error("Add wallet error:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    const { address, label } = req.body;
-
-    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-      return res.status(400).json({ error: "Invalid wallet address" });
-    }
-
-    // Check if wallet already exists for this user
-    const { data: existing } = await supabase
-      .from("wallets")
-      .select("id")
-      .eq("user_id", req.userId)
-      .eq("address", address.toLowerCase())
-      .single();
-
-    if (existing) {
-      return res.status(400).json({ error: "Wallet already added" });
-    }
-
-    // Insert new wallet
-    const { data, error } = await supabase
-      .from("wallets")
-      .insert({
-        user_id: req.userId,
-        address: address.toLowerCase(),
-        label: label || `Wallet ${address.slice(0, 6)}...${address.slice(-4)}`,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    res.json({ wallet: data });
-  } catch (error: any) {
-    console.error("Add wallet error:", error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // Endpoint to get all user wallets
-router.get("/me/wallets", requireAuth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: "Database not configured" });
+router.get(
+  "/me/wallets",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const supabase = getSupabase();
+      if (!supabase) {
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      const { data: wallets, error } = await supabase
+        .from("wallets")
+        .select("id, address, label, created_at")
+        .eq("user_id", req.userId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      res.json({ wallets: wallets || [] });
+    } catch (error: any) {
+      console.error("Get wallets error:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    const { data: wallets, error } = await supabase
-      .from("wallets")
-      .select("id, address, label, created_at")
-      .eq("user_id", req.userId)
-      .order("created_at", { ascending: true });
-
-    if (error) throw error;
-
-    res.json({ wallets: wallets || [] });
-  } catch (error: any) {
-    console.error("Get wallets error:", error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // Endpoint to delete a wallet
-router.delete("/me/wallets/:walletId", requireAuth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: "Database not configured" });
+router.delete(
+  "/me/wallets/:walletId",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const supabase = getSupabase();
+      if (!supabase) {
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      const { walletId } = req.params;
+
+      const { error } = await supabase
+        .from("wallets")
+        .delete()
+        .eq("id", walletId)
+        .eq("user_id", req.userId);
+
+      if (error) throw error;
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete wallet error:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    const { walletId } = req.params;
-
-    const { error } = await supabase
-      .from("wallets")
-      .delete()
-      .eq("id", walletId)
-      .eq("user_id", req.userId);
-
-    if (error) throw error;
-
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error("Delete wallet error:", error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
+
+// ============================================
+// REAL TRADE EXECUTION ENDPOINTS
+// ============================================
+
+// Execute a CEX trade (LATOKEN or LBank)
+router.post(
+  "/me/trade/cex",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    const ccxt = require("ccxt");
+
+    try {
+      const { exchange, symbol, side, amount, price } = req.body;
+
+      if (!exchange || !symbol || !side || !amount) {
+        return res
+          .status(400)
+          .json({
+            error: "Missing required fields: exchange, symbol, side, amount",
+          });
+      }
+
+      const supabase = getSupabase();
+      if (!supabase) {
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      // Get user's exchange credentials
+      const { data: credentials, error: credError } = await supabase
+        .from("exchange_credentials")
+        .select("exchange, api_key, api_secret_encrypted")
+        .eq("user_id", req.userId)
+        .eq("exchange", exchange.toLowerCase())
+        .single();
+
+      if (credError || !credentials) {
+        return res
+          .status(400)
+          .json({ error: `No API credentials found for ${exchange}` });
+      }
+
+      // Decrypt the API secret
+      const encryptionKey = process.env.CEX_SECRETS_KEY;
+      if (!encryptionKey) {
+        return res.status(500).json({ error: "Encryption key not configured" });
+      }
+
+      const [ivHex, encryptedHex] = credentials.api_secret_encrypted.split(":");
+      const iv = Buffer.from(ivHex, "hex");
+      const encrypted = Buffer.from(encryptedHex, "hex");
+      const decipher = crypto.createDecipheriv(
+        "aes-256-cbc",
+        Buffer.from(encryptionKey, "hex"),
+        iv
+      );
+      let apiSecret = decipher.update(encrypted);
+      apiSecret = Buffer.concat([apiSecret, decipher.final()]);
+      const decryptedSecret = apiSecret.toString("utf8");
+
+      // Create exchange instance
+      let exchangeInstance;
+      if (exchange.toLowerCase() === "latoken") {
+        exchangeInstance = new ccxt.latoken({
+          apiKey: credentials.api_key,
+          secret: decryptedSecret,
+          enableRateLimit: true,
+        });
+      } else if (exchange.toLowerCase() === "lbank") {
+        exchangeInstance = new ccxt.lbank({
+          apiKey: credentials.api_key,
+          secret: decryptedSecret,
+          enableRateLimit: true,
+        });
+      } else {
+        return res
+          .status(400)
+          .json({ error: `Unsupported exchange: ${exchange}` });
+      }
+
+      // Execute the trade
+      console.log(
+        `Executing CEX trade: ${side} ${amount} ${symbol} on ${exchange}`
+      );
+
+      let order;
+      if (price) {
+        // Limit order
+        order = await exchangeInstance.createLimitOrder(
+          symbol,
+          side,
+          amount,
+          price
+        );
+      } else {
+        // Market order
+        order = await exchangeInstance.createMarketOrder(symbol, side, amount);
+      }
+
+      console.log(`CEX trade executed:`, order);
+
+      // Log the trade
+      await supabase.from("trade_history").insert({
+        user_id: req.userId,
+        exchange: exchange,
+        symbol: symbol,
+        side: side,
+        amount: amount,
+        price: order.average || order.price || price,
+        order_id: order.id,
+        status: order.status,
+        executed_at: new Date().toISOString(),
+      });
+
+      res.json({
+        success: true,
+        order: {
+          id: order.id,
+          symbol: order.symbol,
+          side: order.side,
+          amount: order.amount,
+          price: order.average || order.price,
+          status: order.status,
+          filled: order.filled,
+          remaining: order.remaining,
+          cost: order.cost,
+        },
+      });
+    } catch (error: any) {
+      console.error("CEX trade execution error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Execute a DEX trade (Uniswap swap)
+router.post(
+  "/me/trade/dex",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    const ethers = require("ethers");
+
+    try {
+      const { tokenIn, tokenOut, amountIn, slippageBps, walletAddress } =
+        req.body;
+
+      if (!tokenIn || !tokenOut || !amountIn || !walletAddress) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Missing required fields: tokenIn, tokenOut, amountIn, walletAddress",
+          });
+      }
+
+      // NOTE: DEX trades require the user to sign the transaction themselves
+      // This endpoint returns the transaction data for the frontend to sign
+
+      const rpcUrl =
+        process.env.RPC_URL || "https://ethereum-rpc.publicnode.com";
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+      // Uniswap V3 SwapRouter address
+      const SWAP_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
+
+      // Build swap parameters
+      const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes
+      const slippage = slippageBps || 50; // 0.5% default
+
+      // Return transaction data for frontend to sign
+      // In production, you'd use Uniswap SDK to build the exact calldata
+      res.json({
+        success: true,
+        message: "DEX trade requires wallet signature",
+        transaction: {
+          to: SWAP_ROUTER,
+          tokenIn: tokenIn,
+          tokenOut: tokenOut,
+          amountIn: amountIn,
+          slippageBps: slippage,
+          deadline: deadline,
+          // The actual swap would be executed by the frontend with user's wallet
+        },
+        instructions:
+          "Use Uniswap interface or sign transaction with connected wallet",
+      });
+    } catch (error: any) {
+      console.error("DEX trade preparation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get trade history
+router.get(
+  "/me/trades",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const supabase = getSupabase();
+      if (!supabase) {
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      const { data: trades, error } = await supabase
+        .from("trade_history")
+        .select("*")
+        .eq("user_id", req.userId)
+        .order("executed_at", { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      res.json({ trades: trades || [] });
+    } catch (error: any) {
+      console.error("Get trades error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 export default router;
