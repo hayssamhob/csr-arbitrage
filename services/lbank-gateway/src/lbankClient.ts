@@ -304,9 +304,23 @@ export class LBankClient extends EventEmitter {
 
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        // LBank may expect ping in specific format
-        this.ws.send(JSON.stringify({ ping: Date.now().toString() }));
+        // LBank expects action-based ping format
+        const pingMsg = JSON.stringify({
+          action: "ping",
+          ping: Date.now().toString(),
+        });
+        this.ws.send(pingMsg);
         this.onLog("debug", "ping_sent");
+
+        // Check for staleness - force reconnect if no data for 60s
+        if (this.lastMessageTs) {
+          const lastMsgTime = new Date(this.lastMessageTs).getTime();
+          const staleMs = Date.now() - lastMsgTime;
+          if (staleMs > 60000) {
+            this.onLog("warn", "staleness_detected", { staleMs });
+            this.ws.close(1000, "Stale connection");
+          }
+        }
       }
     }, this.pingIntervalMs);
   }

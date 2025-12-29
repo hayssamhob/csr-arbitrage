@@ -245,13 +245,23 @@ export function AlignmentDisplay({
       {/* Price Comparison */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-slate-900/50 rounded-xl p-4">
-          <div className="text-xs text-slate-500 mb-1">CEX Reference</div>
+          <div
+            className="text-xs text-slate-500 mb-1"
+            title="Reference price from the centralized exchange (LATOKEN for CSR, LBank for CSR25). Used as the target price for DEX alignment."
+          >
+            CEX Reference ⓘ
+          </div>
           <div className="font-mono text-2xl text-white">
             ${formatPrice(alignment.cex_mid)}
           </div>
         </div>
         <div className="bg-slate-900/50 rounded-xl p-4">
-          <div className="text-xs text-slate-500 mb-1">DEX Current</div>
+          <div
+            className="text-xs text-slate-500 mb-1"
+            title="Current execution price on Uniswap DEX for the recommended trade size. This is what you would actually pay/receive."
+          >
+            DEX Current ⓘ
+          </div>
           <div
             className={`font-mono text-2xl ${
               isBuy ? "text-emerald-400" : "text-red-400"
@@ -312,8 +322,11 @@ export function AlignmentDisplay({
           <>
             {/* Recommended Amount */}
             <div className="bg-slate-900/70 rounded-xl p-4 mb-4">
-              <div className="text-xs text-slate-400 mb-2">
-                Smallest sufficient size
+              <div
+                className="text-xs text-slate-400 mb-2"
+                title="The minimum trade size in USDT that would bring the DEX price back within the acceptable deviation band from the CEX reference price."
+              >
+                Smallest sufficient size ⓘ
               </div>
               <div className="flex items-baseline gap-3">
                 <span className="text-3xl font-mono font-bold text-white">
@@ -322,14 +335,20 @@ export function AlignmentDisplay({
                 <span className="text-sm text-slate-400">USDT</span>
               </div>
               <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-                <div className="bg-slate-800/50 rounded p-2">
-                  <span className="text-slate-500">Impact:</span>
+                <div
+                  className="bg-slate-800/50 rounded p-2"
+                  title="Expected price impact of the trade - how much the price will move due to your trade size."
+                >
+                  <span className="text-slate-500">Impact ⓘ:</span>
                   <span className="text-white ml-1">
                     {alignment.price_impact_pct?.toFixed(2) || "—"}%
                   </span>
                 </div>
-                <div className="bg-slate-800/50 rounded p-2">
-                  <span className="text-slate-500">Gas:</span>
+                <div
+                  className="bg-slate-800/50 rounded p-2"
+                  title="Estimated Ethereum network fee (gas cost) for executing this swap on Uniswap."
+                >
+                  <span className="text-slate-500">Gas ⓘ:</span>
                   <span className="text-white ml-1">
                     {alignment.network_cost_usd !== null
                       ? `$${alignment.network_cost_usd.toFixed(2)}`

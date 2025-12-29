@@ -152,7 +152,10 @@ export function GlobalStatusBar({
           </div>
 
           {/* Data Freshness */}
-          <div className="flex items-center gap-2 text-xs">
+          <div
+            className="flex items-center gap-2 text-xs"
+            title="Time since last data refresh from all sources. Data older than 30s (CEX) or 60s (DEX) is considered stale."
+          >
             <span className="text-slate-500">Last update:</span>
             <span className="font-mono text-slate-300">
               {timeSinceUpdate()}
@@ -162,7 +165,10 @@ export function GlobalStatusBar({
           {/* Execution Controls */}
           <div className="flex items-center gap-3">
             {/* Mode Selector */}
-            <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-0.5">
+            <div
+              className="flex items-center gap-1 bg-slate-800 rounded-lg p-0.5"
+              title="OFF: No trades executed. MANUAL: Review and approve each trade before execution."
+            >
               {(["OFF", "MANUAL"] as const).map((mode) => (
                 <button
                   key={mode}
@@ -188,6 +194,11 @@ export function GlobalStatusBar({
             {/* Kill Switch */}
             <button
               onClick={onKillSwitchToggle}
+              title={
+                killSwitchActive
+                  ? "Kill switch is active - all trading halted. Click to resume."
+                  : "Emergency stop button - click to halt all trading immediately."
+              }
               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
                 killSwitchActive
                   ? "bg-red-600 text-white animate-pulse"

@@ -138,13 +138,43 @@ export function QuoteLadder({ token }: QuoteLadderProps) {
 
       {/* Header */}
       <div className="grid grid-cols-7 gap-1 text-xs text-slate-500 mb-2 pb-2 border-b border-slate-700">
-        <div>USDT In</div>
-        <div className="text-right">Tokens Out</div>
-        <div className="text-right">Price</div>
-        <div className="text-right">Impact</div>
-        <div className="text-right">vs CEX</div>
-        <div className="text-right">Gas</div>
-        <div className="text-right">Age</div>
+        <div title="Amount of USDT to swap">USDT In</div>
+        <div
+          className="text-right"
+          title="Number of tokens you would receive for this swap size"
+        >
+          Tokens Out
+        </div>
+        <div
+          className="text-right"
+          title="Effective execution price per token (USDT/token)"
+        >
+          Price
+        </div>
+        <div
+          className="text-right"
+          title="Price impact - how much the price moves due to your trade size"
+        >
+          Impact
+        </div>
+        <div
+          className="text-right"
+          title="Price deviation from CEX reference price. Green = close to CEX, Red = far from CEX"
+        >
+          vs CEX
+        </div>
+        <div
+          className="text-right"
+          title="Estimated Ethereum network fee for this swap"
+        >
+          Gas
+        </div>
+        <div
+          className="text-right"
+          title="How old this quote is. Quotes older than 60s may be stale"
+        >
+          Age
+        </div>
       </div>
 
       {/* Ladder rows */}
