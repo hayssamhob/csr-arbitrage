@@ -379,8 +379,30 @@ function App() {
     const alignment =
       token === "CSR" ? alignmentData?.csr_usdt : alignmentData?.csr25_usdt;
 
-    // Use expected_exec_price as DEX price (from scraping), cex_mid as CEX price
-    const dexPrice = alignment?.expected_exec_price || 0;
+    // Get valid quotes from scraper for this token
+    const quotes = token === "CSR" ? csrDexQuotes : csr25DexQuotes;
+
+    // Find the closest valid quote to the requested amount
+    let dexPrice = alignment?.expected_exec_price || 0;
+
+    if (dexPrice === 0 && quotes.length > 0) {
+      // Find the quote closest to the requested amount
+      const sortedQuotes = [...quotes].sort(
+        (a, b) =>
+          Math.abs(a.amountInUSDT - usdtAmount) -
+          Math.abs(b.amountInUSDT - usdtAmount)
+      );
+      const closestQuote = sortedQuotes[0];
+      if (closestQuote && closestQuote.executionPrice > 0) {
+        dexPrice = closestQuote.executionPrice;
+      }
+    }
+
+    // Fallback: use dex_exec_price from alignment if still 0
+    if (dexPrice === 0 && alignment?.dex_exec_price) {
+      dexPrice = alignment.dex_exec_price;
+    }
+
     const cexPrice = alignment?.cex_mid || 0;
 
     setShowTradePanel({
