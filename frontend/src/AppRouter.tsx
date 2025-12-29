@@ -11,6 +11,7 @@ import { useWallet } from "./hooks/useWallet";
 import { ArbitragePage } from "./pages/ArbitragePage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 function Navigation() {
@@ -148,6 +149,7 @@ function AppContent() {
         <Route path="/alignment" element={<App />} />
         <Route path="/arbitrage" element={<ArbitragePage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* Protected routes - require authentication */}
         <Route

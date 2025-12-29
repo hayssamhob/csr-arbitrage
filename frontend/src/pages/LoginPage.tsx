@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
-type AuthMode = "signin" | "signup" | "magic";
+type AuthMode = "signin" | "signup";
 
 export function LoginPage() {
   const {
@@ -15,6 +15,7 @@ export function LoginPage() {
     signInWithEmail,
     signInWithPassword,
     signUpWithPassword,
+    resetPassword,
   } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +25,7 @@ export function LoginPage() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [showMagicLink, setShowMagicLink] = useState(false);
   const location = useLocation();
 
   // Get the redirect path from state, or default to /alignment
@@ -41,7 +43,7 @@ export function LoginPage() {
 
     let result: { error: Error | null };
 
-    if (authMode === "magic") {
+    if (showMagicLink) {
       result = await signInWithEmail(email);
       if (!result.error) {
         setMessage({
@@ -74,6 +76,31 @@ export function LoginPage() {
 
     if (result.error) {
       setMessage({ type: "error", text: result.error.message });
+    }
+
+    setIsSubmitting(false);
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setMessage({
+        type: "error",
+        text: "Please enter your email address first",
+      });
+      return;
+    }
+    setIsSubmitting(true);
+    setMessage(null);
+
+    const { error } = await resetPassword(email);
+
+    if (error) {
+      setMessage({ type: "error", text: error.message });
+    } else {
+      setMessage({
+        type: "success",
+        text: "Password reset link sent! Check your email.",
+      });
     }
 
     setIsSubmitting(false);
@@ -113,6 +140,7 @@ export function LoginPage() {
               type="button"
               onClick={() => {
                 setAuthMode("signin");
+                setShowMagicLink(false);
                 setMessage(null);
               }}
               className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
@@ -127,6 +155,7 @@ export function LoginPage() {
               type="button"
               onClick={() => {
                 setAuthMode("signup");
+                setShowMagicLink(false);
                 setMessage(null);
               }}
               className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
@@ -136,20 +165,6 @@ export function LoginPage() {
               }`}
             >
               Sign Up
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode("magic");
-                setMessage(null);
-              }}
-              className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
-                authMode === "magic"
-                  ? "bg-emerald-600 text-white"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Magic Link
             </button>
           </div>
 
@@ -174,7 +189,7 @@ export function LoginPage() {
               />
             </div>
 
-            {authMode !== "magic" && (
+            {!showMagicLink && (
               <div>
                 <label
                   htmlFor="password"
@@ -212,25 +227,63 @@ export function LoginPage() {
 
             <button
               type="submit"
-              disabled={
-                isSubmitting || !email || (authMode !== "magic" && !password)
-              }
+              disabled={isSubmitting || !email || (!showMagicLink && !password)}
               className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white py-3 rounded-xl font-semibold transition-colors"
             >
               {isSubmitting ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="animate-spin">⏳</span>
-                  {authMode === "magic" ? "Sending..." : "Processing..."}
+                  {showMagicLink ? "Sending..." : "Processing..."}
                 </span>
+              ) : showMagicLink ? (
+                "Send Magic Link"
               ) : authMode === "signin" ? (
                 "Sign In"
-              ) : authMode === "signup" ? (
-                "Create Account"
               ) : (
-                "Send Magic Link"
+                "Create Account"
               )}
             </button>
           </form>
+
+          {/* Sign In Options */}
+          {authMode === "signin" && !showMagicLink && (
+            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMagicLink(true);
+                  setMessage(null);
+                }}
+                className="w-full text-slate-400 hover:text-emerald-400 text-sm transition-colors"
+              >
+                👉 Sign in with Magic Link
+              </button>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={isSubmitting}
+                className="w-full text-slate-400 hover:text-emerald-400 text-sm transition-colors"
+              >
+                🔐 Forgot Password?
+              </button>
+            </div>
+          )}
+
+          {/* Back to Password */}
+          {showMagicLink && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMagicLink(false);
+                  setMessage(null);
+                }}
+                className="w-full text-slate-400 hover:text-emerald-400 text-sm transition-colors"
+              >
+                ← Back to password sign in
+              </button>
+            </div>
+          )}
 
           {/* Footer */}
           <p className="mt-6 text-center text-xs text-slate-500">

@@ -30,6 +30,7 @@ interface AuthContextType {
     email: string,
     password: string
   ) => Promise<{ error: Error | null }>;
+  resetPassword: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
 }
@@ -90,6 +91,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
+  const resetPassword = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${REDIRECT_URL}/reset-password`,
+    });
+    return { error: error as Error | null };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
@@ -108,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithEmail,
         signInWithPassword,
         signUpWithPassword,
+        resetPassword,
         signOut,
         getAccessToken,
       }}
