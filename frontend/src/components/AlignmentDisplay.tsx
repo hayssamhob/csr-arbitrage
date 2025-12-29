@@ -70,16 +70,25 @@ export function AlignmentDisplay({
   // Loading state
   if (!alignment) {
     return (
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-700">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">{TOKEN_NAMES[token]}</h2>
-          <span className="text-xs px-3 py-1 rounded-full bg-slate-700 text-slate-400">
-            LOADING
-          </span>
-        </div>
-        <div className="text-center py-8 text-slate-500">
-          <div className="text-4xl mb-3">📡</div>
-          <div>Fetching alignment data...</div>
+      <div className="relative overflow-hidden rounded-2xl p-8 bg-gradient-to-br from-slate-900/90 via-slate-800/50 to-slate-900/90 backdrop-blur-xl">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-700/20 via-transparent to-transparent"></div>
+        <div className="relative">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {TOKEN_NAMES[token]}
+            </h2>
+            <span className="text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl bg-slate-800/80 text-slate-400 border border-slate-700/50">
+              Loading
+            </span>
+          </div>
+          <div className="text-center py-12">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-800/50 border border-slate-700/50 mb-4">
+              <div className="w-6 h-6 border-2 border-slate-500 border-t-emerald-500 rounded-full animate-spin"></div>
+            </div>
+            <div className="text-slate-500 font-medium">
+              Fetching alignment data...
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -88,39 +97,53 @@ export function AlignmentDisplay({
   // No action state (stale/missing data)
   if (alignment.status === "NO_ACTION") {
     return (
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-yellow-500/30">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">{TOKEN_NAMES[token]}</h2>
-          <span className="text-xs px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-            NO ACTION
-          </span>
-        </div>
-        <div className="bg-yellow-500/10 rounded-xl p-4 mb-4">
-          <div className="text-yellow-400 font-medium mb-1">
-            ⚠️ Cannot compute alignment
+      <div className="relative overflow-hidden rounded-2xl p-8 bg-gradient-to-br from-slate-900/90 via-slate-800/50 to-slate-900/90 backdrop-blur-xl border border-amber-500/20">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-900/10 via-transparent to-transparent"></div>
+        <div className="relative">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {TOKEN_NAMES[token]}
+            </h2>
+            <span className="text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]">
+              No Action
+            </span>
           </div>
-          <div className="text-yellow-400/70 text-sm font-mono">
-            {alignment.reason}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="bg-slate-900/50 rounded-lg p-3">
-            <div className="text-xs text-slate-500 mb-1">
-              CEX ({CEX_SOURCES[token]})
-            </div>
-            <div className="font-mono text-white">
-              ${formatPrice(alignment.cex_mid)}
-            </div>
-          </div>
-          <div className="bg-slate-900/50 rounded-lg p-3">
-            <div className="text-xs text-slate-500 mb-1">DEX (Uniswap)</div>
-            <div className="font-mono text-white">
-              ${formatPrice(alignment.dex_exec_price)}
+          <div className="bg-amber-500/5 rounded-2xl p-5 mb-6 border border-amber-500/10">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                <span className="text-amber-400">⚠️</span>
+              </div>
+              <div>
+                <div className="text-amber-400 font-bold mb-1">
+                  Cannot compute alignment
+                </div>
+                <div className="text-amber-400/60 text-sm font-mono">
+                  {alignment.reason}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="mt-3 text-xs text-slate-500">
-          Quotes: {alignment.quotes_valid}/{alignment.quotes_available} valid
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-slate-950/50 rounded-2xl p-5 border border-slate-800/50">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                CEX ({CEX_SOURCES[token]})
+              </div>
+              <div className="font-mono text-xl font-bold text-white">
+                ${formatPrice(alignment.cex_mid)}
+              </div>
+            </div>
+            <div className="bg-slate-950/50 rounded-2xl p-5 border border-slate-800/50">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                DEX (Uniswap)
+              </div>
+              <div className="font-mono text-xl font-bold text-white">
+                ${formatPrice(alignment.dex_exec_price)}
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 text-xs text-slate-500 font-mono">
+            Quotes: {alignment.quotes_valid}/{alignment.quotes_available} valid
+          </div>
         </div>
       </div>
     );
@@ -129,38 +152,47 @@ export function AlignmentDisplay({
   // Not supported (SELL direction)
   if (alignment.status === "NOT_SUPPORTED_YET") {
     return (
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-600">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">{TOKEN_NAMES[token]}</h2>
-          <span className="text-xs px-3 py-1 rounded-full bg-slate-600 text-slate-300">
-            SELL NEEDED
-          </span>
-        </div>
-        <div className="bg-slate-700/30 rounded-xl p-4 mb-4">
-          <div className="text-slate-300 font-medium mb-1">
-            DEX price is HIGH vs CEX
-          </div>
-          <div className="text-slate-400 text-sm">
-            Deviation:{" "}
-            <span className="font-mono text-red-400">
-              +{alignment.deviation_pct?.toFixed(2)}%
+      <div className="relative overflow-hidden rounded-2xl p-8 bg-gradient-to-br from-slate-900/90 via-slate-800/50 to-slate-900/90 backdrop-blur-xl border border-slate-600/30">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-red-900/10 via-transparent to-transparent"></div>
+        <div className="relative">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {TOKEN_NAMES[token]}
+            </h2>
+            <span className="text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl bg-slate-700/50 text-slate-300 border border-slate-600/50">
+              Sell Needed
             </span>
           </div>
-          <div className="text-slate-500 text-xs mt-2">{alignment.reason}</div>
-        </div>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="bg-slate-900/50 rounded-lg p-3">
-            <div className="text-xs text-slate-500 mb-1">
-              CEX ({CEX_SOURCES[token]})
+          <div className="bg-slate-800/30 rounded-2xl p-5 mb-6 border border-slate-700/30">
+            <div className="text-slate-300 font-bold mb-2">
+              DEX price is HIGH vs CEX
             </div>
-            <div className="font-mono text-white">
-              ${formatPrice(alignment.cex_mid)}
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-slate-400">Deviation:</span>
+              <span className="font-mono font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-lg">
+                +{alignment.deviation_pct?.toFixed(2)}%
+              </span>
+            </div>
+            <div className="text-slate-500 text-xs mt-3 font-mono">
+              {alignment.reason}
             </div>
           </div>
-          <div className="bg-slate-900/50 rounded-lg p-3">
-            <div className="text-xs text-slate-500 mb-1">DEX (Uniswap)</div>
-            <div className="font-mono text-red-400">
-              ${formatPrice(alignment.dex_exec_price)}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-slate-950/50 rounded-2xl p-5 border border-slate-800/50">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                CEX ({CEX_SOURCES[token]})
+              </div>
+              <div className="font-mono text-xl font-bold text-white">
+                ${formatPrice(alignment.cex_mid)}
+              </div>
+            </div>
+            <div className="bg-slate-950/50 rounded-2xl p-5 border border-red-500/20">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                DEX (Uniswap)
+              </div>
+              <div className="font-mono text-xl font-bold text-red-400">
+                ${formatPrice(alignment.dex_exec_price)}
+              </div>
             </div>
           </div>
         </div>
@@ -171,37 +203,51 @@ export function AlignmentDisplay({
   // Aligned state
   if (alignment.status === "ALIGNED") {
     return (
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border-2 border-emerald-500/30">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">{TOKEN_NAMES[token]}</h2>
-          <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-            ✓ ALIGNED
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="bg-slate-900/50 rounded-xl p-4">
-            <div className="text-xs text-slate-500 mb-1">
-              CEX ({CEX_SOURCES[token]})
+      <div className="relative overflow-hidden rounded-2xl p-8 bg-gradient-to-br from-slate-900/90 via-slate-800/50 to-slate-900/90 backdrop-blur-xl border-2 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-900/20 via-transparent to-transparent"></div>
+        <div className="relative">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {TOKEN_NAMES[token]}
+            </h2>
+            <span className="text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+              ✓ Aligned
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800/50">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                CEX ({CEX_SOURCES[token]})
+              </div>
+              <div className="font-mono text-3xl font-black text-white">
+                ${formatPrice(alignment.cex_mid)}
+              </div>
             </div>
-            <div className="font-mono text-2xl text-white">
-              ${formatPrice(alignment.cex_mid)}
+            <div className="bg-emerald-500/5 rounded-2xl p-6 border border-emerald-500/20">
+              <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500/70 mb-2">
+                DEX (Uniswap)
+              </div>
+              <div className="font-mono text-3xl font-black text-emerald-400">
+                ${formatPrice(alignment.dex_exec_price)}
+              </div>
             </div>
           </div>
-          <div className="bg-slate-900/50 rounded-xl p-4">
-            <div className="text-xs text-slate-500 mb-1">DEX (Uniswap)</div>
-            <div className="font-mono text-2xl text-emerald-400">
-              ${formatPrice(alignment.dex_exec_price)}
-            </div>
-          </div>
-        </div>
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">✓</span>
-            <div>
-              <div className="text-emerald-400 font-medium">Prices Aligned</div>
-              <div className="text-emerald-400/70 text-sm">
-                Deviation: {alignment.deviation_pct?.toFixed(2)}% (within ±
-                {(alignment.band_bps / 100).toFixed(1)}%)
+          <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <span className="text-2xl">✓</span>
+              </div>
+              <div>
+                <div className="text-emerald-400 font-black text-lg">
+                  Prices Aligned
+                </div>
+                <div className="text-emerald-400/60 text-sm">
+                  Deviation:{" "}
+                  <span className="font-mono font-bold">
+                    {alignment.deviation_pct?.toFixed(2)}%
+                  </span>{" "}
+                  (within ±{(alignment.band_bps / 100).toFixed(1)}%)
+                </div>
               </div>
             </div>
           </div>
@@ -217,191 +263,210 @@ export function AlignmentDisplay({
 
   return (
     <div
-      className={`bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border-2 ${
+      className={`relative overflow-hidden rounded-2xl p-8 bg-gradient-to-br from-slate-900/90 via-slate-800/50 to-slate-900/90 backdrop-blur-xl border-2 ${
         isActionRequired
-          ? "border-red-500/50 shadow-xl shadow-red-500/10"
+          ? isBuy
+            ? "border-emerald-500/40 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
+            : "border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
           : "border-slate-700"
       }`}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          {TOKEN_NAMES[token]}
-          <span className="text-xs text-slate-500 font-normal">
-            via {CEX_SOURCES[token]}
+      <div
+        className={`absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] ${
+          isBuy ? "from-emerald-900/20" : "from-red-900/20"
+        } via-transparent to-transparent`}
+      ></div>
+
+      <div className="relative">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {TOKEN_NAMES[token]}
+            </h2>
+            <span className="text-xs text-slate-500">
+              via {CEX_SOURCES[token]}
+            </span>
+          </div>
+          <span
+            className={`text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl ${
+              isBuy
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                : "bg-red-500/10 text-red-400 border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+            }`}
+          >
+            {isBuy ? "Buy" : "Sell"} Needed
           </span>
-        </h2>
-        <span
-          className={`text-xs px-3 py-1 rounded-full font-bold ${
+        </div>
+
+        {/* Price Comparison */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800/50 group hover:border-slate-700/50 transition-colors">
+            <div
+              className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1"
+              title="Reference price from the centralized exchange"
+            >
+              CEX Reference
+              <span className="opacity-50 group-hover:opacity-100 transition-opacity">
+                ⓘ
+              </span>
+            </div>
+            <div className="font-mono text-3xl font-black text-white">
+              ${formatPrice(alignment.cex_mid)}
+            </div>
+          </div>
+          <div
+            className={`rounded-2xl p-6 border group hover:border-opacity-50 transition-colors ${
+              isBuy
+                ? "bg-emerald-500/5 border-emerald-500/20"
+                : "bg-red-500/5 border-red-500/20"
+            }`}
+          >
+            <div
+              className={`text-[10px] font-black uppercase tracking-widest mb-2 flex items-center gap-1 ${
+                isBuy ? "text-emerald-500/70" : "text-red-500/70"
+              }`}
+              title="Current execution price on Uniswap DEX"
+            >
+              DEX Current
+              <span className="opacity-50 group-hover:opacity-100 transition-opacity">
+                ⓘ
+              </span>
+            </div>
+            <div
+              className={`font-mono text-3xl font-black ${
+                isBuy ? "text-emerald-400" : "text-red-400"
+              }`}
+            >
+              ${formatPrice(alignment.dex_exec_price)}
+            </div>
+          </div>
+        </div>
+
+        {/* Deviation Bar */}
+        <div className="mb-6 p-4 rounded-2xl bg-slate-950/30 border border-slate-800/30">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-slate-400 font-medium">
+              Price Deviation
+            </span>
+            <span
+              className={`font-mono text-xl font-black px-3 py-1 rounded-xl ${
+                isBuy
+                  ? "text-emerald-400 bg-emerald-500/10"
+                  : "text-red-400 bg-red-500/10"
+              }`}
+            >
+              {alignment.deviation_pct !== null
+                ? `${
+                    alignment.deviation_pct > 0 ? "+" : ""
+                  }${alignment.deviation_pct.toFixed(2)}%`
+                : "—"}
+            </span>
+          </div>
+        </div>
+
+        {/* RECOMMENDED TRADE */}
+        <div
+          className={`p-6 rounded-2xl border-2 ${
             isBuy
-              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-              : "bg-red-500/20 text-red-400 border border-red-500/30"
+              ? "bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border-emerald-500/30"
+              : "bg-gradient-to-br from-red-500/10 to-red-500/5 border-red-500/30"
           }`}
         >
-          {isBuy ? "BUY" : "SELL"} NEEDED
-        </span>
-      </div>
-
-      {/* Price Comparison */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-slate-900/50 rounded-xl p-4">
-          <div
-            className="text-xs text-slate-500 mb-1"
-            title="Reference price from the centralized exchange (LATOKEN for CSR, LBank for CSR25). Used as the target price for DEX alignment."
-          >
-            CEX Reference ⓘ
-          </div>
-          <div className="font-mono text-2xl text-white">
-            ${formatPrice(alignment.cex_mid)}
-          </div>
-        </div>
-        <div className="bg-slate-900/50 rounded-xl p-4">
-          <div
-            className="text-xs text-slate-500 mb-1"
-            title="Current execution price on Uniswap DEX for the recommended trade size. This is what you would actually pay/receive."
-          >
-            DEX Current ⓘ
-          </div>
-          <div
-            className={`font-mono text-2xl ${
-              isBuy ? "text-emerald-400" : "text-red-400"
-            }`}
-          >
-            ${formatPrice(alignment.dex_exec_price)}
-          </div>
-        </div>
-      </div>
-
-      {/* Deviation */}
-      <div className="mb-4 p-3 rounded-lg bg-slate-900/30">
-        <div className="flex justify-between items-center">
-          <span
-            className="text-sm text-slate-400 cursor-help"
-            title="Percentage difference between the Uniswap execution price and the centralized exchange reference price for the same trade direction and size."
-          >
-            Price Deviation ⓘ
-          </span>
-          <span
-            className={`font-mono text-lg font-bold ${
-              isBuy ? "text-emerald-400" : "text-red-400"
-            }`}
-          >
-            {alignment.deviation_pct !== null
-              ? `${
-                  alignment.deviation_pct > 0 ? "+" : ""
-                }${alignment.deviation_pct.toFixed(2)}%`
-              : "—"}
-          </span>
-        </div>
-      </div>
-
-      {/* RECOMMENDED TRADE - Always show trade info based on price impact */}
-      <div
-        className={`p-5 rounded-xl border-2 ${
-          isBuy
-            ? "bg-emerald-500/10 border-emerald-500/30"
-            : "bg-red-500/10 border-red-500/30"
-        }`}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">⚡</span>
-            <span className="text-lg font-bold text-white">
+          <div className="flex items-center gap-3 mb-5">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                isBuy ? "bg-emerald-500/20" : "bg-red-500/20"
+              }`}
+            >
+              <span className="text-xl">⚡</span>
+            </div>
+            <span className="text-lg font-black text-white">
               Recommended Trade
             </span>
           </div>
-        </div>
 
-        {/* Trade Amount - use required_usdt if available, otherwise show suggested size */}
-        <div className="bg-slate-900/70 rounded-xl p-4 mb-4">
-          <div
-            className="text-xs text-slate-400 mb-2"
-            title="Suggested trade size based on price deviation and available liquidity."
-          >
-            Suggested size ⓘ
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-mono font-bold text-white">
-              $
-              {(
-                alignment.required_usdt ||
-                alignment.dex_quote_size_usdt ||
-                100
-              ).toLocaleString()}
-            </span>
-            <span className="text-sm text-slate-400">USDT</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-            <div
-              className="bg-slate-800/50 rounded p-2"
-              title="Expected price impact of the trade - how much the price will move due to your trade size."
-            >
-              <span className="text-slate-500">Impact ⓘ:</span>
-              <span className="text-white ml-1">
-                {alignment.price_impact_pct?.toFixed(2) || "—"}%
-              </span>
+          {/* Trade Amount */}
+          <div className="bg-slate-950/50 rounded-2xl p-5 mb-5 border border-slate-800/30">
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">
+              Suggested Size
             </div>
-            <div
-              className="bg-slate-800/50 rounded p-2"
-              title="Estimated Ethereum network fee (gas cost) for executing this swap on Uniswap."
-            >
-              <span className="text-slate-500">Gas ⓘ:</span>
-              <span className="text-white ml-1">
-                {alignment.network_cost_usd !== null
-                  ? `$${alignment.network_cost_usd.toFixed(2)}`
-                  : "~$0.01"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="text-xs text-slate-400 mb-4 font-mono bg-slate-900/50 rounded p-2">
-          {alignment.quotes_valid} quotes available • Band: ±
-          {(alignment.band_bps / 100).toFixed(1)}%
-        </div>
-
-        {/* Action Button */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs">
-            <span
-              className={`px-2 py-1 rounded ${
-                alignment.confidence === "HIGH"
-                  ? "bg-emerald-500/20 text-emerald-400"
-                  : alignment.confidence === "MEDIUM"
-                  ? "bg-yellow-500/20 text-yellow-400"
-                  : alignment.confidence === "NONE"
-                  ? "bg-slate-500/20 text-slate-400"
-                  : "bg-red-500/20 text-red-400"
-              }`}
-            >
-              {alignment.confidence || "LOW"}
-            </span>
-            <span className="text-slate-500">
-              {alignment.quotes_valid} quotes
-            </span>
-          </div>
-
-          {executionMode === "MANUAL" && onExecute && (
-            <button
-              onClick={() =>
-                onExecute(
-                  token,
-                  alignment.direction,
+            <div className="flex items-baseline gap-3 mb-4">
+              <span className="text-4xl font-mono font-black text-white">
+                $
+                {(
                   alignment.required_usdt ||
-                    alignment.dex_quote_size_usdt ||
-                    100
-                )
-              }
-              className={`px-6 py-3 rounded-lg font-bold text-white transition-all hover:scale-105 ${
-                isBuy
-                  ? "bg-emerald-600 hover:bg-emerald-500"
-                  : "bg-red-600 hover:bg-red-500"
-              }`}
-            >
-              {isBuy ? "BUY" : "SELL"} on Uniswap →
-            </button>
-          )}
+                  alignment.dex_quote_size_usdt ||
+                  100
+                ).toLocaleString()}
+              </span>
+              <span className="text-sm font-bold text-slate-500">USDT</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/30">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Impact
+                </span>
+                <div className="text-sm font-mono font-bold text-white mt-1">
+                  {alignment.price_impact_pct?.toFixed(2) || "—"}%
+                </div>
+              </div>
+              <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/30">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Gas
+                </span>
+                <div className="text-sm font-mono font-bold text-white mt-1">
+                  {alignment.network_cost_usd !== null
+                    ? `$${alignment.network_cost_usd.toFixed(2)}`
+                    : "~$0.01"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer Info */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span
+                className={`text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg ${
+                  alignment.confidence === "HIGH"
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : alignment.confidence === "MEDIUM"
+                    ? "bg-amber-500/20 text-amber-400"
+                    : alignment.confidence === "NONE"
+                    ? "bg-slate-500/20 text-slate-400"
+                    : "bg-red-500/20 text-red-400"
+                }`}
+              >
+                {alignment.confidence || "LOW"}
+              </span>
+              <span className="text-xs text-slate-500 font-mono">
+                {alignment.quotes_valid} quotes • ±
+                {(alignment.band_bps / 100).toFixed(1)}%
+              </span>
+            </div>
+
+            {executionMode === "MANUAL" && onExecute && (
+              <button
+                onClick={() =>
+                  onExecute(
+                    token,
+                    alignment.direction,
+                    alignment.required_usdt ||
+                      alignment.dex_quote_size_usdt ||
+                      100
+                  )
+                }
+                className={`px-6 py-3 rounded-xl font-black text-white transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
+                  isBuy
+                    ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-lg shadow-emerald-900/30"
+                    : "bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-900/30"
+                }`}
+              >
+                {isBuy ? "BUY" : "SELL"} ON UNISWAP →
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

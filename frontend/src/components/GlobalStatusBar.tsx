@@ -34,16 +34,33 @@ export function GlobalStatusBar({ services, lastDataUpdate }: GlobalStatusBarPro
     status: ServiceStatus["status"],
     isStale?: boolean
   ) => {
-    if (isStale) return "bg-yellow-500";
+    if (isStale) return "bg-amber-500";
     switch (status) {
       case "ok":
         return "bg-emerald-500";
       case "warning":
-        return "bg-yellow-500";
+        return "bg-amber-500";
       case "error":
         return "bg-red-500";
       case "offline":
-        return "bg-slate-500";
+        return "bg-slate-600";
+    }
+  };
+
+  const getStatusGlow = (
+    status: ServiceStatus["status"],
+    isStale?: boolean
+  ) => {
+    if (isStale) return "shadow-[0_0_8px_rgba(245,158,11,0.5)]";
+    switch (status) {
+      case "ok":
+        return "shadow-[0_0_8px_rgba(16,185,129,0.5)]";
+      case "warning":
+        return "shadow-[0_0_8px_rgba(245,158,11,0.5)]";
+      case "error":
+        return "shadow-[0_0_8px_rgba(239,68,68,0.6)]";
+      case "offline":
+        return "";
     }
   };
 
@@ -54,9 +71,8 @@ export function GlobalStatusBar({ services, lastDataUpdate }: GlobalStatusBarPro
     return `${Math.floor(seconds / 60)}m ago`;
   };
 
-  // Build status summary with explicit reasons
   const getStatusSummary = () => {
-    if (allHealthy) return "All Data Fresh";
+    if (allHealthy) return "All Systems Operational";
 
     const issues: string[] = [];
     services.forEach((s) => {
@@ -75,82 +91,112 @@ export function GlobalStatusBar({ services, lastDataUpdate }: GlobalStatusBarPro
   };
 
   return (
-    <div className="bg-slate-900/80 backdrop-blur-sm border-b border-slate-700 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 py-2">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          {/* System Health with explicit reason */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-2.5 h-2.5 rounded-full ${
-                  allHealthy
-                    ? "bg-emerald-500 animate-pulse"
-                    : hasErrors
-                    ? "bg-red-500 animate-pulse"
-                    : "bg-yellow-500"
-                }`}
-              />
+    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      {/* System Health Summary */}
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <div
+            className={`w-3 h-3 rounded-full ${
+              allHealthy
+                ? "bg-emerald-500"
+                : hasErrors
+                ? "bg-red-500"
+                : "bg-amber-500"
+            } ${
+              allHealthy
+                ? "shadow-[0_0_12px_rgba(16,185,129,0.6)]"
+                : hasErrors
+                ? "shadow-[0_0_12px_rgba(239,68,68,0.6)]"
+                : "shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+            }`}
+          />
+          {(allHealthy || hasErrors) && (
+            <div
+              className={`absolute inset-0 w-3 h-3 rounded-full animate-ping ${
+                allHealthy ? "bg-emerald-500/50" : "bg-red-500/50"
+              }`}
+            />
+          )}
+        </div>
+        <div>
+          <span
+            className={`text-sm font-bold ${
+              allHealthy
+                ? "text-emerald-400"
+                : hasErrors
+                ? "text-red-400"
+                : "text-amber-400"
+            }`}
+          >
+            {getStatusSummary()}
+          </span>
+        </div>
+      </div>
+
+      {/* Service Grid */}
+      <div className="flex flex-wrap items-center gap-2">
+        {services.map((service) => (
+          <div
+            key={service.name}
+            className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all duration-300 cursor-default ${
+              service.status === "ok" && !service.isStale
+                ? "bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40"
+                : service.status === "error" || service.status === "offline"
+                ? "bg-red-500/5 border-red-500/30 hover:border-red-500/50"
+                : "bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40"
+            }`}
+            title={`${service.name}: ${service.status}${
+              service.isStale ? " (STALE)" : ""
+            }${service.reason ? ` - ${service.reason}` : ""} | Age: ${
+              service.ageSeconds || "?"
+            }s`}
+          >
+            <div
+              className={`w-2 h-2 rounded-full ${getStatusColor(
+                service.status,
+                service.isStale
+              )} ${getStatusGlow(service.status, service.isStale)}`}
+            />
+            <span
+              className={`text-xs font-medium ${
+                service.status === "ok" && !service.isStale
+                  ? "text-emerald-400/80"
+                  : service.status === "error" || service.status === "offline"
+                  ? "text-red-400/80"
+                  : "text-amber-400/80"
+              }`}
+            >
+              {service.name}
+            </span>
+            {service.ageSeconds !== undefined && service.ageSeconds < 999 && (
               <span
-                className={`text-sm ${
-                  allHealthy
-                    ? "text-slate-300"
-                    : hasErrors
-                    ? "text-red-400"
-                    : "text-yellow-400"
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                  service.status === "ok" && !service.isStale
+                    ? "bg-emerald-500/10 text-emerald-500/60"
+                    : service.status === "error" || service.status === "offline"
+                    ? "bg-red-500/10 text-red-500/60"
+                    : "bg-amber-500/10 text-amber-500/60"
                 }`}
               >
-                {getStatusSummary()}
+                {service.ageSeconds}s
               </span>
-            </div>
-
-            {/* Service indicators with freshness */}
-            <div className="hidden sm:flex items-center gap-1">
-              {services.map((service) => (
-                <div
-                  key={service.name}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded ${
-                    service.isStale ? "bg-yellow-900/30" : "bg-slate-800/50"
-                  }`}
-                  title={`${service.name}: ${service.status}${
-                    service.isStale ? " (STALE)" : ""
-                  }${service.reason ? ` - ${service.reason}` : ""} | Age: ${
-                    service.ageSeconds || "?"
-                  }s`}
-                >
-                  <div
-                    className={`w-1.5 h-1.5 rounded-full ${getStatusColor(
-                      service.status,
-                      service.isStale
-                    )}`}
-                  />
-                  <span
-                    className={`text-xs ${
-                      service.isStale ? "text-yellow-500" : "text-slate-500"
-                    }`}
-                  >
-                    {service.name}
-                    {service.ageSeconds !== undefined && (
-                      <span className="ml-1 opacity-60">
-                        {service.ageSeconds}s
-                      </span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
+        ))}
+      </div>
 
-          {/* Data Freshness */}
-          <div
-            className="flex items-center gap-2 text-xs"
-            title="Time since last data refresh from all sources. Data older than 30s (CEX) or 60s (DEX) is considered stale."
-          >
-            <span className="text-slate-500">Last update:</span>
-            <span className="font-mono text-slate-300">
-              {timeSinceUpdate()}
-            </span>
-          </div>
-        </div>
+      {/* Last Update */}
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/30 border border-slate-700/50"
+        title="Time since last data refresh from all sources."
+      >
+        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_6px_rgba(59,130,246,0.5)]" />
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          Updated
+        </span>
+        <span className="text-xs font-mono text-slate-300">
+          {timeSinceUpdate()}
+        </span>
       </div>
     </div>
   );

@@ -16,122 +16,153 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 function Navigation() {
   const wallet = useWallet();
-  const { user, loading, signOut } = useAuth();
+  const { user, signOut } = useAuth();
 
   return (
-    <nav className="bg-slate-900/95 border-b border-slate-700/50">
-      <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14">
+    <nav className="bg-slate-950/60 backdrop-blur-xl border-b border-slate-800/50 sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-24">
         {/* Left: Logo + Title */}
-        <div className="flex items-center gap-3">
-          <img
-            src="/depollute-logo-256.png"
-            alt="Depollute Now!"
-            className="h-9 w-9 rounded-lg"
-          />
-          <span className="hidden sm:block text-lg font-bold bg-gradient-to-r from-emerald-400 to-green-300 bg-clip-text text-transparent">
-            CSR Trading Hub
-          </span>
+        <div className="flex items-center gap-5">
+          <div className="relative group">
+            <div className="absolute -inset-1.5 bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-600 rounded-2xl blur-md opacity-20 group-hover:opacity-40 transition duration-500"></div>
+            <img
+              src="/depollute-logo-256.png"
+              alt="Depollute Now!"
+              className="relative h-18 w-18 rounded-2xl shadow-2xl transition-all duration-300 group-hover:scale-105 group-hover:rotate-1"
+            />
+          </div>
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-black tracking-tighter leading-none">
+              <span className="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                CSR
+              </span>
+              <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent ml-1">
+                HUB
+              </span>
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[10px] uppercase tracking-[0.3em] text-emerald-500/80 font-black">
+                Arbitrage Live
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Center: Navigation Tabs */}
-        <div className="flex items-center gap-1">
+        <div className="hidden lg:flex items-center gap-1.5 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800/50 shadow-inner">
           <NavLink
             to="/alignment"
             className={({ isActive }) =>
-              `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
                 isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
-            <span className="hidden sm:inline">⚡ </span>Alignment
+            <span className="text-lg">⚡</span>
+            <span>Alignment</span>
           </NavLink>
           <NavLink
             to="/arbitrage"
             className={({ isActive }) =>
-              `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
                 isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
-            <span className="hidden sm:inline">📈 </span>Arbitrage
+            <span className="text-lg">📈</span>
+            <span>Arbitrage</span>
           </NavLink>
           <NavLink
             to="/inventory"
             className={({ isActive }) =>
-              `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
                 isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
-            <span className="hidden sm:inline">💰 </span>Inventory
+            <span className="text-lg">💼</span>
+            <span>Inventory</span>
           </NavLink>
           <NavLink
             to="/settings"
             className={({ isActive }) =>
-              `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
                 isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
-            <span className="hidden sm:inline">⚙️ </span>Settings
+            <span className="text-lg">⚙️</span>
+            <span>Settings</span>
           </NavLink>
         </div>
 
         {/* Right: Auth + Wallet */}
-        <div className="flex items-center gap-3">
-          {/* Auth Status */}
-          {loading ? (
-            <span className="text-xs text-slate-500">...</span>
-          ) : user ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 hidden sm:block">
-                {user.email}
-              </span>
+        <div className="flex items-center gap-4">
+          {user ? (
+            <div className="flex items-center gap-4">
+              <div className="hidden sm:flex flex-col items-end">
+                <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest">
+                  Terminal ID
+                </span>
+                <span className="text-xs text-slate-300 font-bold font-mono">
+                  {user.email?.split("@")[0]}
+                </span>
+              </div>
               <button
-                onClick={signOut}
-                className="px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                onClick={() => signOut()}
+                className="group relative px-4 py-2 overflow-hidden rounded-xl border border-slate-700/50 transition-all duration-300 hover:border-red-500/50"
               >
-                Sign out
+                <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/5 transition-colors duration-300"></div>
+                <span className="relative text-xs font-bold text-slate-400 group-hover:text-red-400">
+                  Logout
+                </span>
               </button>
             </div>
           ) : (
             <NavLink
               to="/login"
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-xs transition-colors"
+              className="flex flex-col items-center px-5 py-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-xl shadow-xl shadow-emerald-900/20 transition-all duration-300 active:scale-95"
             >
-              Sign in
+              <span className="text-[10px] font-black text-white leading-tight">
+                SIGN IN
+              </span>
+              <span className="text-[10px] font-black text-white leading-tight">
+                SIGN UP
+              </span>
             </NavLink>
           )}
 
-          {/* Wallet */}
+          <div className="h-10 w-px bg-slate-800 mx-1 hidden sm:block"></div>
+
           {wallet.isConnected ? (
-            <div className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">
-              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-              <span className="font-mono text-xs text-emerald-400">
-                {wallet.address?.slice(0, 4)}...{wallet.address?.slice(-3)}
+            <div className="flex items-center gap-3 px-4 py-2 bg-emerald-500/5 rounded-xl border border-emerald-500/20 group hover:border-emerald-500/40 transition-colors">
+              <div className="relative">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-ping absolute opacity-75"></div>
+                <div className="h-2 w-2 rounded-full bg-emerald-500 relative"></div>
+              </div>
+              <span className="text-xs font-black font-mono text-emerald-400 tracking-wider group-hover:text-emerald-300">
+                {wallet.address?.slice(0, 6)}
               </span>
-              <button
-                onClick={wallet.disconnect}
-                className="text-xs text-slate-400 hover:text-red-400"
-              >
-                ✕
-              </button>
             </div>
           ) : (
             <button
-              onClick={wallet.connect}
+              onClick={() => wallet.connect()}
               disabled={wallet.isConnecting}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 text-white rounded-lg font-medium text-xs transition-colors"
+              className="relative group px-5 py-2.5 overflow-hidden rounded-xl bg-slate-900 border border-slate-700 transition-all duration-300 active:scale-95 hover:border-emerald-500/50"
             >
-              {wallet.isConnecting ? "..." : "🦊 Connect"}
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-600/0 to-emerald-600/10 group-hover:from-emerald-600/10 transition-all"></div>
+              <span className="relative text-xs font-black text-slate-300 group-hover:text-white">
+                {wallet.isConnecting ? "CONNECTING..." : "CONNECT WALLET"}
+              </span>
             </button>
           )}
         </div>

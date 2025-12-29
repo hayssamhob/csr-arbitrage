@@ -14,6 +14,7 @@ interface UniswapTradePanelProps {
   dexPrice: number;
   cexPrice: number;
   recommendedAmount?: number;
+  onClose: () => void;
 }
 
 export function UniswapTradePanel({
@@ -22,6 +23,7 @@ export function UniswapTradePanel({
   dexPrice,
   cexPrice,
   recommendedAmount,
+  onClose,
 }: UniswapTradePanelProps) {
   // Use recommended amount as default, fall back to 100
   const [amount, setAmount] = useState(recommendedAmount?.toString() || "100");
@@ -47,58 +49,95 @@ export function UniswapTradePanel({
   const uniswapUrl = `${baseUrl}&field=input&value=${amount}`;
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-      <h3 className="text-lg font-semibold text-white mb-3">
-        {direction === "buy" ? "🟢 Buy" : "🔴 Sell"} {token} on Uniswap
-      </h3>
+    <div className="bg-slate-900 rounded-3xl p-6 border border-slate-800 shadow-2xl overflow-hidden relative">
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
+      >
+        ✕
+      </button>
+
+      <div className="mb-6">
+        <h3 className="text-xl font-black text-white mb-1">
+          {direction === "buy" ? "🟢 Buy" : "🔴 Sell"} {token}
+        </h3>
+        <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">
+          Uniswap v3 Execution
+        </p>
+      </div>
 
       {/* Price Info */}
-      <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
-        <div className="bg-gray-900 p-2 rounded">
-          <span className="text-gray-400">DEX Price:</span>
-          <span className="text-white ml-2">${dexPrice.toFixed(6)}</span>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50">
+          <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest block mb-1">
+            DEX Price
+          </span>
+          <span className="text-white font-mono text-lg font-bold">
+            ${dexPrice.toFixed(6)}
+          </span>
         </div>
-        <div className="bg-gray-900 p-2 rounded">
-          <span className="text-gray-400">CEX Price:</span>
-          <span className="text-white ml-2">${cexPrice.toFixed(6)}</span>
+        <div className="bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50">
+          <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest block mb-1">
+            CEX Price
+          </span>
+          <span className="text-white font-mono text-lg font-bold">
+            ${cexPrice.toFixed(6)}
+          </span>
         </div>
         <div
-          className="col-span-2 bg-gray-900 p-2 rounded"
-          title="Percentage difference between the Uniswap execution price and the centralized exchange reference price for the same trade direction and size."
+          className="col-span-2 bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50 flex justify-between items-center"
+          title="Percentage difference between the Uniswap execution price and the centralized exchange reference price."
         >
-          <span className="text-gray-400">Price Deviation ⓘ:</span>
+          <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
+            Price Deviation ⓘ
+          </span>
           <span
-            className={`ml-2 ${
-              parseFloat(deviation) > 0 ? "text-green-400" : "text-red-400"
+            className={`font-mono font-black text-lg ${
+              parseFloat(deviation) > 0 ? "text-emerald-400" : "text-red-400"
             }`}
           >
+            {parseFloat(deviation) > 0 ? "+" : ""}
             {deviation}%
           </span>
         </div>
       </div>
 
       {/* Amount Input */}
-      <div className="mb-4">
-        <label className="text-gray-400 text-sm mb-1 block">
-          Amount ({inputToken})
+      <div className="mb-6">
+        <label className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 block">
+          Trade Amount ({inputToken})
         </label>
-        <input
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          className="w-full bg-gray-900 text-white px-3 py-2 rounded border border-gray-700 focus:border-blue-500 focus:outline-none"
-          placeholder="100"
-        />
+        <div className="relative">
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="w-full bg-slate-950 text-white px-5 py-4 rounded-2xl border border-slate-800 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 focus:outline-none font-mono text-xl font-bold transition-all"
+            placeholder="100"
+          />
+          <div className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-sm">
+            USDT
+          </div>
+        </div>
       </div>
 
       {/* Estimated Output */}
-      <div className="bg-gray-900 p-3 rounded mb-4">
-        <div className="text-gray-400 text-sm">Estimated Output</div>
-        <div className="text-white text-xl font-bold">
-          {estimatedOutput} {outputToken}
-        </div>
-        <div className="text-gray-500 text-xs">
-          Based on current DEX price (actual may vary)
+      <div className="bg-emerald-500/5 p-5 rounded-2xl border border-emerald-500/20 mb-8">
+        <div className="flex justify-between items-end">
+          <div>
+            <span className="text-emerald-500/70 text-[10px] font-black uppercase tracking-widest block mb-1">
+              Estimated Output
+            </span>
+            <div className="text-white text-3xl font-black font-mono leading-none">
+              {estimatedOutput}{" "}
+              <span className="text-lg opacity-50">{outputToken}</span>
+            </div>
+          </div>
+          <div className="text-emerald-500/40 text-[10px] font-bold text-right">
+            Slippage: 0.5%
+            <br />
+            Includes LP Fee
+          </div>
         </div>
       </div>
 
@@ -107,16 +146,15 @@ export function UniswapTradePanel({
         href={uniswapUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="block w-full bg-pink-600 hover:bg-pink-500 text-white py-3 rounded-lg font-semibold text-center transition-colors"
+        className="block w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white py-4 rounded-2xl font-black text-center shadow-xl shadow-emerald-900/20 transition-all active:scale-[0.98]"
       >
-        Open in Uniswap to Review & Execute ↗
+        REVIEW ON UNISWAP ↗
       </a>
 
-      {/* Info - NO internal approve flow */}
-      <div className="mt-4 text-xs text-gray-500 space-y-1">
-        <p>• Clicking "Open in Uniswap" opens the official Uniswap interface</p>
-        <p>• You'll see the real quote with gas fees and price impact</p>
-        <p>• Approve and execute the trade directly on Uniswap</p>
+      <div className="mt-6 text-center">
+        <p className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">
+          Final execution happens on official Uniswap UI
+        </p>
       </div>
     </div>
   );

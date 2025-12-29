@@ -73,9 +73,22 @@ export function RecentSwaps({ token }: RecentSwapsProps) {
 
   if (loading && !data) {
     return (
-      <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
-        <div className="text-slate-400 text-sm animate-pulse">
-          Loading recent transactions...
+      <div className="h-full flex flex-col">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <span className="text-sm">🔄</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Recent Activity
+            </span>
+            <span className="text-[10px] text-slate-500 font-medium">
+              {token}
+            </span>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-slate-700 border-t-emerald-500 rounded-full animate-spin"></div>
         </div>
       </div>
     );
@@ -83,98 +96,126 @@ export function RecentSwaps({ token }: RecentSwapsProps) {
 
   if (error && !data) {
     return (
-      <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
-        <div className="text-red-400 text-sm">Error: {error}</div>
+      <div className="h-full flex flex-col">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-xl bg-red-500/10 flex items-center justify-center">
+            <span className="text-sm">❌</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Recent Activity
+            </span>
+            <span className="text-[10px] text-red-400 font-medium">
+              Error: {error}
+            </span>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-800/50 rounded-xl border border-slate-700">
-      <div className="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400">🔄</span>
-          <span className="text-sm font-medium text-slate-300">
-            Recent Swaps - {token}
-          </span>
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <span className="text-sm">🔄</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Recent Activity
+            </span>
+            <span className="text-[10px] text-slate-500 font-medium">
+              {token}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2">
           {data?.cached && (
-            <span className="bg-slate-700 px-2 py-0.5 rounded">
-              cached {data.cache_age_sec}s
+            <span className="text-[10px] px-2 py-1 rounded-lg bg-slate-800/50 text-slate-500 border border-slate-700/30">
+              {data.cache_age_sec}s ago
             </span>
           )}
-          {data?.dex_swaps !== undefined && <span>{data.dex_swaps} swaps</span>}
+          {data?.dex_swaps !== undefined && (
+            <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400">
+              {data.dex_swaps} swaps
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="max-h-96 overflow-y-auto">
+      {/* Swaps List */}
+      <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
         {data?.swaps && data.swaps.length > 0 ? (
-          <table className="w-full text-xs">
-            <thead className="bg-slate-900/50 sticky top-0">
-              <tr className="text-slate-500">
-                <th className="px-3 py-2 text-left font-medium">Time</th>
-                <th className="px-3 py-2 text-left font-medium">Type</th>
-                <th className="px-3 py-2 text-right font-medium">{token}</th>
-                <th className="px-3 py-2 text-left font-medium">Wallet</th>
-                <th className="px-3 py-2 text-left font-medium">Tx</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/50">
-              {data.swaps.map((swap, idx) => (
-                <tr key={idx} className="hover:bg-slate-700/30">
-                  <td className="px-3 py-2 text-slate-400">{swap.time_ago}</td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                        swap.type.startsWith("Buy")
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : swap.type.startsWith("Sell")
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-slate-500/20 text-slate-400"
-                      }`}
-                    >
-                      {swap.type}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-slate-300">
-                    {swap.token_amount_formatted}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-slate-400">
-                    {swap.wallet}
-                  </td>
-                  <td className="px-3 py-2">
-                    <a
-                      href={swap.etherscan_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-blue-400 hover:text-blue-300 hover:underline"
-                    >
-                      {shortenTxHash(swap.tx_hash)} ↗
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          data.swaps.map((swap, idx) => (
+            <div
+              key={idx}
+              className="p-3 rounded-xl bg-slate-950/30 border border-slate-800/30 hover:border-slate-700/50 transition-all duration-200 group"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span
+                  className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg ${
+                    swap.type.startsWith("Buy")
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : swap.type.startsWith("Sell")
+                      ? "bg-red-500/10 text-red-400"
+                      : "bg-slate-500/10 text-slate-400"
+                  }`}
+                >
+                  {swap.type}
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  {swap.time_ago}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="font-mono text-sm font-bold text-white">
+                  {swap.token_amount_formatted}{" "}
+                  <span className="text-slate-500 font-normal text-xs">
+                    {token}
+                  </span>
+                </div>
+                <a
+                  href={swap.etherscan_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] font-mono text-blue-400/70 hover:text-blue-400 transition-colors flex items-center gap-1"
+                >
+                  {shortenTxHash(swap.tx_hash)}
+                  <span className="opacity-50 group-hover:opacity-100">↗</span>
+                </a>
+              </div>
+              <div className="mt-2 text-[10px] text-slate-600 font-mono truncate">
+                {swap.wallet}
+              </div>
+            </div>
+          ))
         ) : (
-          <div className="px-4 py-6 text-center text-slate-500 text-sm">
-            No recent swaps found for {token}
+          <div className="flex-1 flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-2xl bg-slate-800/30 mx-auto mb-3 flex items-center justify-center">
+                <span className="text-slate-600 text-xl">📭</span>
+              </div>
+              <span className="text-sm text-slate-500">
+                No recent swaps for {token}
+              </span>
+            </div>
           </div>
         )}
       </div>
 
-      {/* View More on Etherscan Link */}
+      {/* Footer Link */}
       {data?.token_address && (
-        <div className="px-4 py-3 border-t border-slate-700/50 text-center">
+        <div className="pt-4 mt-4 border-t border-slate-800/30">
           <a
             href={`https://etherscan.io/token/${data.token_address}?a=0x000000000004444c5dc75cb358380d2e3de08a90`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
-            title="View all Uniswap swaps for this token on Etherscan (filtered by Uniswap Universal Router)"
+            className="flex items-center justify-center gap-2 text-xs text-blue-400/70 hover:text-blue-400 transition-colors group"
           >
-            View all {token} Uniswap swaps on Etherscan ↗
+            <span>View all on Etherscan</span>
+            <span className="opacity-50 group-hover:opacity-100">↗</span>
           </a>
         </div>
       )}

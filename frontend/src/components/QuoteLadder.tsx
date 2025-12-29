@@ -98,9 +98,22 @@ export function QuoteLadder({ token }: QuoteLadderProps) {
 
   if (loading) {
     return (
-      <div className="bg-slate-900/50 rounded-lg p-4">
-        <div className="animate-pulse text-slate-500">
-          Loading quote ladder...
+      <div className="rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <span className="text-sm">📊</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Trade Simulations
+            </span>
+            <span className="text-[10px] text-slate-500 font-medium">
+              {token}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-center py-12">
+          <div className="w-8 h-8 border-2 border-slate-700 border-t-emerald-500 rounded-full animate-spin"></div>
         </div>
       </div>
     );
@@ -108,89 +121,108 @@ export function QuoteLadder({ token }: QuoteLadderProps) {
 
   if (error) {
     return (
-      <div className="bg-slate-900/50 rounded-lg p-4">
-        <div className="text-red-400">❌ Error: {error}</div>
+      <div className="rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-xl bg-red-500/10 flex items-center justify-center">
+            <span className="text-sm">❌</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Trade Simulations
+            </span>
+            <span className="text-[10px] text-red-400 font-medium">
+              Error: {error}
+            </span>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!data || data.quotes.length === 0) {
     return (
-      <div className="bg-slate-900/50 rounded-lg p-4">
-        <div className="text-yellow-400">
-          ⚠️ No quotes available - scraper may be down
+      <div className="rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
+            <span className="text-sm">⚠️</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Trade Simulations
+            </span>
+            <span className="text-[10px] text-amber-400 font-medium">
+              No quotes available
+            </span>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-900/50 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-sm font-medium text-slate-300 flex items-center gap-2">
-          📊 Trade Simulations - {token}
-        </h4>
-        <div className="text-xs text-slate-500">
-          CEX: ${formatPrice(data.cex_mid)} | Spot: $
-          {formatPrice(data.spot_price)}
+    <div className="rounded-2xl">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <span className="text-sm">📊</span>
+          </div>
+          <div>
+            <span className="text-sm font-bold text-slate-200 block">
+              Trade Simulations
+            </span>
+            <span className="text-[10px] text-slate-500 font-medium">
+              {token}
+            </span>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="flex items-center gap-3">
+            <div className="px-2 py-1 rounded-lg bg-slate-950/50 border border-slate-800/30">
+              <span className="text-[10px] text-slate-500 block">CEX</span>
+              <span className="text-xs font-mono font-bold text-white">
+                ${formatPrice(data.cex_mid)}
+              </span>
+            </div>
+            <div className="px-2 py-1 rounded-lg bg-slate-950/50 border border-slate-800/30">
+              <span className="text-[10px] text-slate-500 block">Spot</span>
+              <span className="text-xs font-mono font-bold text-blue-400">
+                ${formatPrice(data.spot_price)}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Header */}
-      <div className="grid grid-cols-7 gap-1 text-xs text-slate-500 mb-2 pb-2 border-b border-slate-700">
-        <div title="Amount of USDT to swap">USDT In</div>
-        <div
-          className="text-right"
-          title="Number of tokens you would receive for this swap size"
-        >
-          Tokens Out
-        </div>
-        <div
-          className="text-right"
-          title="Effective execution price per token (USDT/token)"
-        >
-          Price
-        </div>
-        <div
-          className="text-right"
-          title="Price impact - how much the price moves due to your trade size"
-        >
-          Impact
-        </div>
-        <div
-          className="text-right"
-          title="Price deviation from CEX reference price. Green = close to CEX, Red = far from CEX"
-        >
-          vs CEX
-        </div>
-        <div
-          className="text-right"
-          title="Estimated Ethereum network fee for this swap"
-        >
-          Gas
-        </div>
-        <div
-          className="text-right"
-          title="How old this quote is. Quotes older than 60s may be stale"
-        >
-          Age
-        </div>
+      {/* Table Header */}
+      <div className="grid grid-cols-7 gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600 mb-2 pb-2 border-b border-slate-800/50 px-2">
+        <div>USDT</div>
+        <div className="text-right">Tokens</div>
+        <div className="text-right">Price</div>
+        <div className="text-right">Impact</div>
+        <div className="text-right">vs CEX</div>
+        <div className="text-right">Gas</div>
+        <div className="text-right">Age</div>
       </div>
 
       {/* Ladder rows */}
-      <div className="space-y-0.5 max-h-64 overflow-y-auto">
+      <div className="space-y-1 max-h-56 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
         {data.quotes.map((quote, idx) => (
           <div
             key={idx}
-            className={`grid grid-cols-7 gap-1 text-xs py-1.5 px-1 rounded ${
-              quote.valid ? "hover:bg-slate-800/50" : "opacity-40 bg-red-900/10"
+            className={`grid grid-cols-7 gap-1 text-xs py-2 px-2 rounded-xl transition-all duration-200 ${
+              quote.valid
+                ? "hover:bg-slate-800/30 border border-transparent hover:border-slate-700/30"
+                : "opacity-30 bg-red-900/5 border border-red-500/10"
             }`}
           >
-            <div className="font-mono text-slate-300">${quote.usdt_in}</div>
-            <div className="text-right font-mono text-slate-300">
+            <div className="font-mono font-bold text-slate-300">
+              ${quote.usdt_in}
+            </div>
+            <div className="text-right font-mono text-slate-400">
               {formatTokens(quote.tokens_out)}
             </div>
-            <div className="text-right font-mono text-blue-400">
+            <div className="text-right font-mono font-bold text-blue-400">
               ${formatPrice(quote.exec_price)}
             </div>
             <div
@@ -203,7 +235,7 @@ export function QuoteLadder({ token }: QuoteLadderProps) {
                 : "—"}
             </div>
             <div
-              className={`text-right font-mono font-medium ${getDeviationColor(
+              className={`text-right font-mono font-bold ${getDeviationColor(
                 quote.deviation_pct
               )}`}
             >
@@ -228,13 +260,23 @@ export function QuoteLadder({ token }: QuoteLadderProps) {
       </div>
 
       {/* Summary */}
-      <div className="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-500">
-        <div className="flex justify-between">
-          <span>
-            Valid: {data.valid}/{data.total}
+      <div className="mt-4 pt-3 border-t border-slate-800/30 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
+              data.valid === data.total
+                ? "bg-emerald-500/10 text-emerald-400"
+                : data.valid > 0
+                ? "bg-amber-500/10 text-amber-400"
+                : "bg-red-500/10 text-red-400"
+            }`}
+          >
+            {data.valid}/{data.total} valid
           </span>
-          <span>Source: Uniswap UI Scrape</span>
         </div>
+        <span className="text-[10px] text-slate-600 font-medium">
+          Uniswap UI Scrape
+        </span>
       </div>
     </div>
   );

@@ -15,7 +15,6 @@ import {
 } from "./components/GlobalStatusBar";
 import { MarketContextCard } from "./components/MarketContextCard";
 import { QuoteLadder } from "./components/QuoteLadder";
-import { RecentSwaps } from "./components/RecentSwaps";
 import { UniswapTradePanel } from "./components/UniswapTradePanel";
 import type { DexQuote } from "./lib/alignmentEngine";
 
@@ -121,18 +120,6 @@ function timeAgo(ts: string): string {
   return `${Math.floor(diffMs / 3600000)}h ago`;
 }
 
-interface PricePoint {
-  ts: string;
-  cex_price: number;
-  dex_price: number;
-  spread_bps: number;
-}
-
-interface PriceHistoryState {
-  csr_usdt: PricePoint[];
-  csr25_usdt: PricePoint[];
-}
-
 interface ScraperQuote {
   market: string;
   amountInUSDT: number;
@@ -191,10 +178,6 @@ function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [error, setError] = useState<string | null>(null);
-  const [, setPriceHistory] = useState<PriceHistoryState>({
-    csr_usdt: [],
-    csr25_usdt: [],
-  });
   const [scraperData, setScraperData] = useState<ScraperData | null>(null);
   const [alignmentData, setAlignmentData] = useState<AlignmentData | null>(
     null
@@ -414,31 +397,6 @@ function App() {
     });
   };
 
-  // Fetch price history
-  useEffect(() => {
-    async function fetchHistory() {
-      try {
-        const [csrResp, csr25Resp] = await Promise.all([
-          fetch(`${API_URL}/api/history/csr_usdt`),
-          fetch(`${API_URL}/api/history/csr25_usdt`),
-        ]);
-        if (csrResp.ok && csr25Resp.ok) {
-          const csrData = await csrResp.json();
-          const csr25Data = await csr25Resp.json();
-          setPriceHistory({
-            csr_usdt: csrData.points || [],
-            csr25_usdt: csr25Data.points || [],
-          });
-        }
-      } catch (e) {
-        console.error("Failed to fetch price history:", e);
-      }
-    }
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
   // Fetch scraper quotes
   useEffect(() => {
     async function fetchScraperQuotes() {
@@ -458,7 +416,6 @@ function App() {
   }, []);
 
   // Fetch alignment data from backend - AUTHORITATIVE source for required trade sizes
-  // Frontend does NOT compute required sizes - only displays backend calculations
   useEffect(() => {
     async function fetchAlignment() {
       try {
@@ -472,7 +429,7 @@ function App() {
       }
     }
     fetchAlignment();
-    const interval = setInterval(fetchAlignment, 3000); // More frequent for responsiveness
+    const interval = setInterval(fetchAlignment, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -540,7 +497,7 @@ function App() {
     }
   }, [error]);
 
-  // Local mode state for this page (PAPER=observe only, MANUAL=confirm trades, AUTO=coming soon)
+  // Local mode state
   const [pageMode, setPageMode] = useState<"PAPER" | "MANUAL" | "AUTO">(
     "MANUAL"
   );
@@ -559,211 +516,207 @@ function App() {
     pageMode === "PAPER" ? "OFF" : pageMode;
 
   return (
-    <div className="text-white">
-      {/* Global Status Bar - service health indicators only */}
-      <GlobalStatusBar services={services} lastDataUpdate={lastUpdate} />
+    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-emerald-500/30">
+      {/* Background Decorative Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full animate-pulse"></div>
+        <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] bg-blue-900/10 blur-[100px] rounded-full"></div>
+        <div className="absolute -bottom-[10%] left-[20%] w-[35%] h-[35%] bg-cyan-900/10 blur-[110px] rounded-full"></div>
+      </div>
 
-      {/* Page Header - matching ArbitragePage style */}
-      <div className="bg-slate-900 border-b border-slate-700 px-4 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">⚡ DEX Price Alignment</h1>
-            <p className="text-slate-400 text-sm">
-              Primary objective: Keep DEX aligned with CEX
-            </p>
+      <div className="relative max-w-7xl mx-auto px-4 py-8 space-y-8">
+        {/* Header Section */}
+        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+              <h2 className="text-sm font-black uppercase tracking-[0.3em] text-emerald-500/80">
+                Live Monitoring
+              </h2>
+            </div>
+            <h1 className="text-4xl font-black text-white tracking-tight">
+              Market <span className="text-slate-500">Alignment</span>
+            </h1>
           </div>
 
-          {/* Mode & Controls */}
           <div className="flex items-center gap-4">
-            {/* Mode Selector */}
-            <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-slate-900/50 backdrop-blur-sm border border-slate-800/50 rounded-xl p-1 shadow-inner">
               {(["PAPER", "MANUAL", "AUTO"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => handleModeChange(m)}
                   disabled={m === "AUTO"}
-                  title={
-                    m === "PAPER"
-                      ? "Simulate trades without real execution"
-                      : m === "MANUAL"
-                      ? "Confirm each trade before execution"
-                      : "Automatic execution (coming soon)"
-                  }
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${
                     pageMode === m
                       ? m === "PAPER"
-                        ? "bg-yellow-600 text-white"
+                        ? "bg-amber-500 text-white shadow-lg shadow-amber-900/20"
                         : m === "MANUAL"
-                        ? "bg-blue-600 text-white"
-                        : "bg-green-600 text-white"
-                      : "text-slate-400 hover:text-white hover:bg-slate-700"
-                  } ${m === "AUTO" ? "opacity-50 cursor-not-allowed" : ""}`}
+                        ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20"
+                        : "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20"
+                      : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+                  } ${m === "AUTO" ? "opacity-30 cursor-not-allowed" : ""}`}
                 >
                   {m}
                 </button>
               ))}
             </div>
 
-            {/* Kill Switch */}
             <button
               onClick={() => setKillSwitch(!killSwitch)}
-              title={killSwitch ? "Resume trading" : "Stop all trading"}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${
+              className={`px-5 py-2 text-xs font-black rounded-xl border transition-all duration-300 ${
                 killSwitch
-                  ? "bg-red-600 text-white animate-pulse"
-                  : "bg-emerald-600 text-white"
+                  ? "bg-red-500/10 border-red-500/50 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] animate-pulse"
+                  : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-500"
               }`}
             >
-              {killSwitch ? "🛑 STOPPED" : "🟢 ACTIVE"}
+              {killSwitch ? "🛑 EMERGENCY STOP" : "🟢 SYSTEM ACTIVE"}
             </button>
           </div>
+        </header>
+
+        {/* Global Status Bar - service health indicators */}
+        <div className="bg-slate-900/40 backdrop-blur-md rounded-2xl border border-slate-800/50 p-4 shadow-xl">
+          <GlobalStatusBar services={services} lastDataUpdate={lastUpdate} />
         </div>
+
+        {/* Dual Token Display - CSR25 and CSR side by side */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* CSR25 Column */}
+          <div className="space-y-6">
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-1 shadow-2xl overflow-hidden">
+              <AlignmentDisplay
+                token="CSR25"
+                alignment={alignmentData?.csr25_usdt ?? null}
+                onExecute={handleAlignmentExecute}
+                executionMode={alignmentExecutionMode}
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl hover:border-slate-700/50 transition-colors">
+              <MarketContextCard
+                token="CSR25"
+                cexData={
+                  data?.market_state?.csr25_usdt?.lbank_ticker
+                    ? {
+                        bid: data.market_state.csr25_usdt.lbank_ticker.bid,
+                        ask: data.market_state.csr25_usdt.lbank_ticker.ask,
+                        last: data.market_state.csr25_usdt.lbank_ticker.last,
+                        volume24h:
+                          data.market_state.csr25_usdt.lbank_ticker.volume_24h,
+                        source: "LBANK",
+                        timestamp: timeAgo(
+                          data.market_state.csr25_usdt.lbank_ticker.ts
+                        ),
+                      }
+                    : null
+                }
+                dexData={
+                  data?.market_state?.csr25_usdt?.uniswap_quote
+                    ? {
+                        executionPrice:
+                          data.market_state.csr25_usdt.uniswap_quote
+                            .effective_price_usdt,
+                        gasEstimateUsdt: 0.01,
+                        quoteSize: 100,
+                        source: "Uniswap",
+                        timestamp: timeAgo(
+                          data.market_state.csr25_usdt.uniswap_quote.ts
+                        ),
+                      }
+                    : null
+                }
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl overflow-hidden hover:border-slate-700/50 transition-colors">
+              <QuoteLadder token="CSR25" />
+            </div>
+          </div>
+
+          {/* CSR Column */}
+          <div className="space-y-6">
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-1 shadow-2xl overflow-hidden">
+              <AlignmentDisplay
+                token="CSR"
+                alignment={alignmentData?.csr_usdt ?? null}
+                onExecute={handleAlignmentExecute}
+                executionMode={alignmentExecutionMode}
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl hover:border-slate-700/50 transition-colors">
+              <MarketContextCard
+                token="CSR"
+                cexData={
+                  data?.market_state?.csr_usdt?.latoken_ticker
+                    ? {
+                        bid: data.market_state.csr_usdt.latoken_ticker.bid,
+                        ask: data.market_state.csr_usdt.latoken_ticker.ask,
+                        last: data.market_state.csr_usdt.latoken_ticker.last,
+                        volume24h:
+                          data.market_state.csr_usdt.latoken_ticker
+                            .volume_24h || 0,
+                        source: "LATOKEN",
+                        timestamp: timeAgo(
+                          data.market_state.csr_usdt.latoken_ticker.ts
+                        ),
+                      }
+                    : null
+                }
+                dexData={
+                  data?.market_state?.csr_usdt?.uniswap_quote
+                    ? {
+                        executionPrice:
+                          data.market_state.csr_usdt.uniswap_quote
+                            .effective_price_usdt,
+                        gasEstimateUsdt: 0.01,
+                        quoteSize: 100,
+                        source: "Uniswap",
+                        timestamp: timeAgo(
+                          data.market_state.csr_usdt.uniswap_quote.ts
+                        ),
+                      }
+                    : null
+                }
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl overflow-hidden hover:border-slate-700/50 transition-colors">
+              <QuoteLadder token="CSR" />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="text-center text-slate-600 text-xs py-12 border-t border-slate-900">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <img
+              src="/depollute-logo-256.png"
+              alt="CSR"
+              className="h-6 w-6 grayscale opacity-20"
+            />
+            <span className="font-black tracking-widest uppercase opacity-30">
+              Security Protocol Protected
+            </span>
+          </div>
+          <p>© 2025 Depollute Now • All systems operational</p>
+        </footer>
       </div>
 
-      {/* Trade Panel Modal */}
-      {showTradePanel && data && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="relative max-w-md w-full">
-            <button
-              onClick={() => setShowTradePanel(null)}
-              className="absolute -top-2 -right-2 bg-gray-700 hover:bg-gray-600 rounded-full w-8 h-8 flex items-center justify-center text-white z-10"
-            >
-              ✕
-            </button>
+      {/* Modals */}
+      {showTradePanel && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+            onClick={() => setShowTradePanel(null)}
+          ></div>
+          <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-200">
             <UniswapTradePanel
               token={showTradePanel.token}
-              direction={showTradePanel.direction}
               dexPrice={showTradePanel.dexPrice}
               cexPrice={showTradePanel.cexPrice}
-              recommendedAmount={showTradePanel.recommendedAmount}
+              direction={showTradePanel.direction}
+              onClose={() => setShowTradePanel(null)}
             />
           </div>
         </div>
       )}
-
-      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-4">
-        {/* PRIMARY: DEX Price Alignment Cards */}
-        <section className="mb-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <AlignmentDisplay
-              token="CSR"
-              alignment={alignmentData?.csr_usdt || null}
-              executionMode={alignmentExecutionMode}
-              onExecute={handleAlignmentExecute}
-            />
-            <AlignmentDisplay
-              token="CSR25"
-              alignment={alignmentData?.csr25_usdt || null}
-              executionMode={alignmentExecutionMode}
-              onExecute={handleAlignmentExecute}
-            />
-          </div>
-        </section>
-
-        {/* TRADE SIMULATIONS: Quote Ladder - Moved above Market Context */}
-        <section className="mb-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-3">
-            Trade Simulations (Uniswap UI Scrape)
-          </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <QuoteLadder token="CSR" />
-            <QuoteLadder token="CSR25" />
-          </div>
-        </section>
-
-        {/* SECONDARY: Market Context (Collapsed) */}
-        <section className="mb-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-3">
-            Market Context
-          </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <MarketContextCard
-              token="CSR"
-              cexData={
-                data?.market_state?.csr_usdt?.latoken_ticker
-                  ? {
-                      bid: data.market_state.csr_usdt.latoken_ticker.bid,
-                      ask: data.market_state.csr_usdt.latoken_ticker.ask,
-                      last: data.market_state.csr_usdt.latoken_ticker.last,
-                      volume24h:
-                        data.market_state.csr_usdt.latoken_ticker.volume_24h ||
-                        0,
-                      source: "LATOKEN",
-                      timestamp: timeAgo(
-                        data.market_state.csr_usdt.latoken_ticker.ts
-                      ),
-                    }
-                  : null
-              }
-              dexData={
-                csrDexQuotes.length > 0
-                  ? {
-                      executionPrice: csrDexQuotes[0].executionPrice,
-                      gasEstimateUsdt: csrDexQuotes[0].gasEstimateUsdt || null,
-                      quoteSize: csrDexQuotes[0].amountInUSDT,
-                      source: "UI Scrape",
-                      timestamp: "live",
-                    }
-                  : null
-              }
-            />
-            <MarketContextCard
-              token="CSR25"
-              cexData={
-                data?.market_state?.csr25_usdt?.lbank_ticker
-                  ? {
-                      bid: data.market_state.csr25_usdt.lbank_ticker.bid,
-                      ask: data.market_state.csr25_usdt.lbank_ticker.ask,
-                      last: data.market_state.csr25_usdt.lbank_ticker.last,
-                      volume24h:
-                        data.market_state.csr25_usdt.lbank_ticker.volume_24h,
-                      source: "LBANK",
-                      timestamp: timeAgo(
-                        data.market_state.csr25_usdt.lbank_ticker.ts
-                      ),
-                    }
-                  : null
-              }
-              dexData={
-                csr25DexQuotes.length > 0
-                  ? {
-                      executionPrice: csr25DexQuotes[0].executionPrice,
-                      gasEstimateUsdt:
-                        csr25DexQuotes[0].gasEstimateUsdt || null,
-                      quoteSize: csr25DexQuotes[0].amountInUSDT,
-                      source: "UI Scrape",
-                      timestamp: "live",
-                    }
-                  : null
-              }
-            />
-          </div>
-        </section>
-
-        {/* Recent On-Chain Swaps */}
-        <section className="mt-6">
-          <h3 className="text-lg font-semibold text-slate-300 mb-4">
-            🔗 Recent On-Chain Transactions
-          </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <RecentSwaps token="CSR" />
-            <RecentSwaps token="CSR25" />
-          </div>
-        </section>
-
-        {/* Footer */}
-        <footer className="text-center text-slate-600 text-xs mt-8 pb-4 border-t border-slate-800 pt-4">
-          <div className="flex items-center justify-center gap-2 mb-1">
-            <img
-              src="/depollute-logo-256.png"
-              alt="Depollute"
-              className="h-4 w-4 opacity-40"
-            />
-            <span>Depollute Now! DEX Price Defense Platform</span>
-          </div>
-          <p>Data refreshes automatically • ️ System Protected</p>
-        </footer>
-      </div>
     </div>
   );
 }
