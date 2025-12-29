@@ -38,7 +38,7 @@ interface Opportunity {
 }
 
 interface DashboardData {
-  opportunities?: {
+  market_state?: {
     csr_usdt?: {
       latoken_ticker?: {
         bid: number;
@@ -123,9 +123,9 @@ export function ArbitragePage() {
         const now = new Date().toISOString();
 
         // CSR/USDT from LATOKEN
-        const csrLatoken = dashboard.opportunities?.csr_usdt?.latoken_ticker;
-        const csrDex = dashboard.opportunities?.csr_usdt?.uniswap_quote;
-        const csrDecision = dashboard.opportunities?.csr_usdt?.decision;
+        const csrLatoken = dashboard.market_state?.csr_usdt?.latoken_ticker;
+        const csrDex = dashboard.market_state?.csr_usdt?.uniswap_quote;
+        const csrDecision = dashboard.market_state?.csr_usdt?.decision;
         if (csrLatoken && csrDex) {
           const cexMid = (csrLatoken.bid + csrLatoken.ask) / 2;
           const dexPrice = csrDex.effective_price_usdt;
@@ -163,9 +163,9 @@ export function ArbitragePage() {
         }
 
         // CSR25/USDT from LBank
-        const csr25Lbank = dashboard.opportunities?.csr25_usdt?.lbank_ticker;
-        const csr25Dex = dashboard.opportunities?.csr25_usdt?.uniswap_quote;
-        const csr25Decision = dashboard.opportunities?.csr25_usdt?.decision;
+        const csr25Lbank = dashboard.market_state?.csr25_usdt?.lbank_ticker;
+        const csr25Dex = dashboard.market_state?.csr25_usdt?.uniswap_quote;
+        const csr25Decision = dashboard.market_state?.csr25_usdt?.decision;
         if (csr25Lbank && csr25Dex) {
           const cexMid = (csr25Lbank.bid + csr25Lbank.ask) / 2;
           const dexPrice = csr25Dex.effective_price_usdt;
@@ -508,15 +508,15 @@ export function ArbitragePage() {
             <AdvancedMetricsCard
               token="CSR"
               cexPrice={
-                state.dashboard?.opportunities?.csr_usdt?.latoken_ticker
-                  ? (state.dashboard.opportunities.csr_usdt.latoken_ticker.bid +
-                      state.dashboard.opportunities.csr_usdt.latoken_ticker
+                state.dashboard?.market_state?.csr_usdt?.latoken_ticker
+                  ? (state.dashboard.market_state.csr_usdt.latoken_ticker.bid +
+                      state.dashboard.market_state.csr_usdt.latoken_ticker
                         .ask) /
                     2
                   : 0
               }
               dexPrice={
-                state.dashboard?.opportunities?.csr_usdt?.uniswap_quote
+                state.dashboard?.market_state?.csr_usdt?.uniswap_quote
                   ?.effective_price_usdt || 0
               }
               deviationHistory={state.priceHistory.csr_usdt.map((p) => ({
@@ -528,15 +528,15 @@ export function ArbitragePage() {
             <AdvancedMetricsCard
               token="CSR25"
               cexPrice={
-                state.dashboard?.opportunities?.csr25_usdt?.lbank_ticker
-                  ? (state.dashboard.opportunities.csr25_usdt.lbank_ticker.bid +
-                      state.dashboard.opportunities.csr25_usdt.lbank_ticker
+                state.dashboard?.market_state?.csr25_usdt?.lbank_ticker
+                  ? (state.dashboard.market_state.csr25_usdt.lbank_ticker.bid +
+                      state.dashboard.market_state.csr25_usdt.lbank_ticker
                         .ask) /
                     2
                   : 0
               }
               dexPrice={
-                state.dashboard?.opportunities?.csr25_usdt?.uniswap_quote
+                state.dashboard?.market_state?.csr25_usdt?.uniswap_quote
                   ?.effective_price_usdt || 0
               }
               deviationHistory={state.priceHistory.csr25_usdt.map((p) => ({
