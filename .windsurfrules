@@ -13,7 +13,8 @@ This MVP is for monitoring and dry-run decisioning only — NO live trading, NO 
 PROJECT CONTEXT
 
 The system monitors CSR and CSR25 tokens across:
- • LBank (CEX) — WebSocket market data
+ • LBank (CEX) for CSR25  — WebSocket market data
+ • LATOKEN (CEX) for CSR  — WebSocket market data
  • Uniswap (DEX) — effective quote prices (read-only)
 
 It computes:
@@ -60,6 +61,10 @@ You MUST align behavior with these sources:
 LBank
  • <https://www.lbank.com/en-US/docs/>
  • <https://github.com/LBank-exchange>
+
+LATOKEN
+ • <https://latoken.com/>
+ • <https://api.latoken.com/doc/v2/>
 
 Scope:
  • WebSocket market data

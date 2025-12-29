@@ -643,7 +643,7 @@ const MAX_GAS_BPS: Record<string, number> = {
 
 // Freshness thresholds - per source
 const CEX_STALE_SEC = 120; // 2 minutes for CEX (should update frequently)
-const DEX_STALE_SEC = 180; // 3 minutes for DEX (scraper cycle is ~2 min)
+const DEX_STALE_SEC = 600; // 10 minutes for DEX (scraper cycle can take 5-8 min on slow connections)
 
 app.get("/api/alignment/:market", async (req, res) => {
   const market = req.params.market.toLowerCase();
