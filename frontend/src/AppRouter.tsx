@@ -3,8 +3,10 @@
  * Mode controls are now on each page's header (like ArbitragePage style)
  */
 
+import { useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
 import App from "./App";
+import { ActivityNotificationPanel } from "./components/ActivityNotificationPanel";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useWallet } from "./hooks/useWallet";
@@ -17,6 +19,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 function Navigation() {
   const wallet = useWallet();
   const { user, signOut } = useAuth();
+  const [showActivityPanel, setShowActivityPanel] = useState(false);
 
   return (
     <nav className="bg-slate-950/60 backdrop-blur-xl border-b border-slate-800/50 sticky top-0 z-50">
@@ -108,8 +111,20 @@ function Navigation() {
           </NavLink>
         </div>
 
-        {/* Right: Auth + Wallet */}
+        {/* Right: Bell + Auth + Wallet */}
         <div className="flex items-center gap-4">
+          {/* Activity/Notification Bell */}
+          <button
+            onClick={() => setShowActivityPanel(!showActivityPanel)}
+            className="relative p-2.5 rounded-xl border border-slate-700/50 hover:border-emerald-500/50 hover:bg-slate-800/50 transition-all duration-300 group"
+          >
+            <span className="text-lg group-hover:scale-110 transition-transform inline-block">
+              🔔
+            </span>
+            {/* Notification dot */}
+            <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+          </button>
+
           {user ? (
             <div className="flex items-center gap-4">
               <div className="hidden sm:flex flex-col items-end">
@@ -167,6 +182,12 @@ function Navigation() {
           )}
         </div>
       </div>
+
+      {/* Activity/Notification Panel */}
+      <ActivityNotificationPanel
+        isOpen={showActivityPanel}
+        onClose={() => setShowActivityPanel(false)}
+      />
     </nav>
   );
 }
