@@ -46,9 +46,9 @@ export class LBankClient extends EventEmitter {
     super();
     this.wsUrl = options.wsUrl;
     this.symbols = options.symbols;
-    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 100; // Increased for persistent reconnection
     this.reconnectIntervalMs = options.reconnectIntervalMs ?? 5000;
-    this.pingIntervalMs = options.pingIntervalMs ?? 30000;
+    this.pingIntervalMs = options.pingIntervalMs ?? 15000; // Reduced to 15s for better keep-alive
     this.onLog = options.onLog;
   }
 

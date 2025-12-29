@@ -265,7 +265,12 @@ export function AlignmentDisplay({
       {/* Deviation */}
       <div className="mb-4 p-3 rounded-lg bg-slate-900/30">
         <div className="flex justify-between items-center">
-          <span className="text-sm text-slate-400">Deviation</span>
+          <span
+            className="text-sm text-slate-400 cursor-help"
+            title="Percentage difference between the Uniswap execution price and the centralized exchange reference price for the same trade direction and size."
+          >
+            Price Deviation ⓘ
+          </span>
           <span
             className={`font-mono text-lg font-bold ${
               isBuy ? "text-emerald-400" : "text-red-400"

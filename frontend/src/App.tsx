@@ -725,9 +725,9 @@ function App() {
               token="CSR"
               cexPrice={data?.market_state?.csr_usdt?.latoken_ticker?.bid || 0}
               dexPrice={csrDexQuotes[0]?.executionPrice || 0}
-              spreadHistory={priceHistory.csr_usdt.map((p) => ({
+              deviationHistory={priceHistory.csr_usdt.map((p) => ({
                 timestamp: new Date(p.ts).getTime(),
-                spreadBps: p.spread_bps,
+                deviationBps: p.spread_bps,
               }))}
               transactions={[]}
             />
@@ -735,9 +735,9 @@ function App() {
               token="CSR25"
               cexPrice={data?.market_state?.csr25_usdt?.lbank_ticker?.bid || 0}
               dexPrice={csr25DexQuotes[0]?.executionPrice || 0}
-              spreadHistory={priceHistory.csr25_usdt.map((p) => ({
+              deviationHistory={priceHistory.csr25_usdt.map((p) => ({
                 timestamp: new Date(p.ts).getTime(),
-                spreadBps: p.spread_bps,
+                deviationBps: p.spread_bps,
               }))}
               transactions={[]}
             />

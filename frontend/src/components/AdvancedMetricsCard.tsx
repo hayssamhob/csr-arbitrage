@@ -2,18 +2,18 @@
  * AdvancedMetricsCard - Collapsed by Default
  * 
  * Contains secondary metrics that are hidden under "Advanced":
- * - Raw spread in bps
+ * - Price deviation in bps
  * - Arbitrage profit calculations
  * - Edge after costs
- * - Spread history
+ * - Price deviation history
  * - Transaction history
  */
 
 import { useState } from "react";
 
-interface SpreadHistoryPoint {
+interface DeviationHistoryPoint {
   timestamp: number;
-  spreadBps: number;
+  deviationBps: number;
 }
 
 interface TransactionRecord {
@@ -28,7 +28,7 @@ interface AdvancedMetricsCardProps {
   token: "CSR" | "CSR25";
   cexPrice: number;
   dexPrice: number;
-  spreadHistory: SpreadHistoryPoint[];
+  deviationHistory: DeviationHistoryPoint[];
   transactions: TransactionRecord[];
   defaultExpanded?: boolean;
 }
@@ -37,14 +37,14 @@ export function AdvancedMetricsCard({
   token,
   cexPrice,
   dexPrice,
-  spreadHistory,
+  deviationHistory,
   transactions,
   defaultExpanded = false,
 }: AdvancedMetricsCardProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  // Calculate spread metrics
-  const rawSpreadBps =
+  // Calculate price deviation metrics
+  const rawDeviationBps =
     cexPrice > 0 && dexPrice > 0
       ? ((dexPrice - cexPrice) / cexPrice) * 10000
       : 0;
@@ -58,8 +58,9 @@ export function AdvancedMetricsCard({
 
   const totalCostBps =
     dexFeeBps + cexFeeBps + slippageBps + (gasUsdt / hypotheticalSize) * 10000;
-  const edgeAfterCostsBps = Math.abs(rawSpreadBps) - totalCostBps;
-  const grossProfitUsdt = (Math.abs(rawSpreadBps) / 10000) * hypotheticalSize;
+  const edgeAfterCostsBps = Math.abs(rawDeviationBps) - totalCostBps;
+  const grossProfitUsdt =
+    (Math.abs(rawDeviationBps) / 10000) * hypotheticalSize;
   const netProfitUsdt = (edgeAfterCostsBps / 10000) * hypotheticalSize;
 
   return (
@@ -77,7 +78,7 @@ export function AdvancedMetricsCard({
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-600">
-            (Spread, Arbitrage, History)
+            (Deviation, Arbitrage, History)
           </span>
           <span
             className={`text-slate-500 transition-transform ${
@@ -95,18 +96,23 @@ export function AdvancedMetricsCard({
           {/* Raw Spread Metrics */}
           <div className="bg-slate-900/30 rounded-lg p-3">
             <div className="text-xs text-slate-500 mb-2">
-              Raw Spread Analysis
+              Price Deviation Analysis
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-slate-500">Raw Spread</span>
+                <span
+                  className="text-slate-500"
+                  title="Percentage difference between the Uniswap execution price and the centralized exchange reference price for the same trade direction and size."
+                >
+                  Price Deviation ⓘ
+                </span>
                 <span
                   className={`font-mono ${
-                    rawSpreadBps >= 0 ? "text-emerald-400" : "text-red-400"
+                    rawDeviationBps >= 0 ? "text-emerald-400" : "text-red-400"
                   }`}
                 >
-                  {rawSpreadBps >= 0 ? "+" : ""}
-                  {rawSpreadBps.toFixed(0)} bps
+                  {rawDeviationBps >= 0 ? "+" : ""}
+                  {rawDeviationBps.toFixed(0)} bps
                 </span>
               </div>
               <div className="flex justify-between">
@@ -161,33 +167,34 @@ export function AdvancedMetricsCard({
           {/* Spread History Mini-Chart */}
           <div className="bg-slate-900/30 rounded-lg p-3">
             <div className="text-xs text-slate-500 mb-2">
-              Spread History (Last 20)
+              Price Deviation History (Last 20)
             </div>
-            {spreadHistory.length > 0 ? (
+            {deviationHistory.length > 0 ? (
               <div className="h-16 flex items-end gap-0.5">
-                {spreadHistory.slice(-20).map((point, i) => {
-                  const maxSpread = Math.max(
-                    ...spreadHistory.map((p) => Math.abs(p.spreadBps)),
+                {deviationHistory.slice(-20).map((point, i) => {
+                  const maxDeviation = Math.max(
+                    ...deviationHistory.map((p) => Math.abs(p.deviationBps)),
                     100
                   );
-                  const height = (Math.abs(point.spreadBps) / maxSpread) * 100;
+                  const height =
+                    (Math.abs(point.deviationBps) / maxDeviation) * 100;
                   return (
                     <div
                       key={i}
                       className={`flex-1 rounded-t ${
-                        point.spreadBps >= 0
+                        point.deviationBps >= 0
                           ? "bg-emerald-500/50"
                           : "bg-red-500/50"
                       }`}
                       style={{ height: `${Math.max(height, 5)}%` }}
-                      title={`${point.spreadBps.toFixed(0)} bps`}
+                      title={`${point.deviationBps.toFixed(0)} bps`}
                     />
                   );
                 })}
               </div>
             ) : (
               <div className="text-center py-4 text-slate-600 text-xs">
-                No spread history available
+                No price deviation history available
               </div>
             )}
           </div>

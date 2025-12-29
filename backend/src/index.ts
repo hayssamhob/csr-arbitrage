@@ -1397,7 +1397,7 @@ app.get("/api/swaps/:token", async (req, res) => {
 
     // Process logs into swap format
     const swaps = Array.from(uniqueTxs.values())
-      .slice(0, 30) // Limit to 30 swaps
+      .slice(0, 50) // Limit to 50 swaps
       .map((log: any) => {
         // Decode Transfer event: from, to, value
         const from = "0x" + log.topics[1].slice(26);

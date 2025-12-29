@@ -37,8 +37,8 @@ export function UniswapTradePanel({
         : "—"
       : (parseFloat(amount) * dexPrice).toFixed(4);
 
-  // Calculate spread
-  const spread =
+  // Calculate price deviation
+  const deviation =
     cexPrice > 0 ? (((dexPrice - cexPrice) / cexPrice) * 100).toFixed(2) : "0";
 
   // Build URL with amount pre-filled using field=input&value=X
@@ -62,14 +62,17 @@ export function UniswapTradePanel({
           <span className="text-gray-400">CEX Price:</span>
           <span className="text-white ml-2">${cexPrice.toFixed(6)}</span>
         </div>
-        <div className="col-span-2 bg-gray-900 p-2 rounded">
-          <span className="text-gray-400">Spread:</span>
+        <div
+          className="col-span-2 bg-gray-900 p-2 rounded"
+          title="Percentage difference between the Uniswap execution price and the centralized exchange reference price for the same trade direction and size."
+        >
+          <span className="text-gray-400">Price Deviation ⓘ:</span>
           <span
             className={`ml-2 ${
-              parseFloat(spread) > 0 ? "text-green-400" : "text-red-400"
+              parseFloat(deviation) > 0 ? "text-green-400" : "text-red-400"
             }`}
           >
-            {spread}%
+            {deviation}%
           </span>
         </div>
       </div>

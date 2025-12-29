@@ -108,7 +108,7 @@ export function RecentSwaps({ token }: RecentSwapsProps) {
         </div>
       </div>
 
-      <div className="max-h-80 overflow-y-auto">
+      <div className="max-h-96 overflow-y-auto">
         {data?.swaps && data.swaps.length > 0 ? (
           <table className="w-full text-xs">
             <thead className="bg-slate-900/50 sticky top-0">
@@ -163,6 +163,20 @@ export function RecentSwaps({ token }: RecentSwapsProps) {
           </div>
         )}
       </div>
+
+      {/* View More on Etherscan Link */}
+      {data?.token_address && (
+        <div className="px-4 py-3 border-t border-slate-700/50 text-center">
+          <a
+            href={`https://etherscan.io/token/${data.token_address}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
+          >
+            View all {token} transactions on Etherscan ↗
+          </a>
+        </div>
+      )}
     </div>
   );
 }
