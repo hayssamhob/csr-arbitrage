@@ -2,9 +2,13 @@
  * CSR Arbitrage Monitoring Backend API
  * Node.js/TypeScript implementation aggregating microservices data
  */
-import axios from 'axios';
-import cors from 'cors';
+
+// Load environment variables FIRST before any other imports
 import dotenv from 'dotenv';
+dotenv.config();
+
+import axios from 'axios';
+import cors from "cors";
 import express from 'express';
 import * as http from 'http';
 import process from "process";
@@ -14,8 +18,6 @@ import userRoutes from "./routes/user";
 // Use require for ethers to avoid TS module resolution issues
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ethers = require("ethers");
-
-dotenv.config();
 
 // Configuration
 const PORT = parseInt(process.env.PORT || "8001");
