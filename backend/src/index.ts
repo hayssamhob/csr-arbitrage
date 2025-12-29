@@ -704,17 +704,16 @@ app.get("/api/alignment/:market", async (req, res) => {
     result.cex_mid = cexMid;
     result.ts_cex = cexTs;
 
-    if (!cexMid || !cexTs) {
-      result.reason = "cex_data_missing";
-      return res.json(result);
-    }
+    // Track data quality issues but DON'T return early - always show available data
+    const issues: string[] = [];
 
-    const cexAgeSec = (now - new Date(cexTs).getTime()) / 1000;
-    if (cexAgeSec > CEX_STALE_SEC) {
-      result.reason = `cex_stale: ${Math.round(
-        cexAgeSec
-      )}s > ${CEX_STALE_SEC}s`;
-      return res.json(result);
+    if (!cexMid || !cexTs) {
+      issues.push("cex_data_missing");
+    } else {
+      const cexAgeSec = (now - new Date(cexTs).getTime()) / 1000;
+      if (cexAgeSec > CEX_STALE_SEC) {
+        issues.push(`cex_stale: ${Math.round(cexAgeSec)}s`);
+      }
     }
 
     // 2. Get DEX quotes from scraper
@@ -727,8 +726,7 @@ app.get("/api/alignment/:market", async (req, res) => {
       );
       scraperQuotes = scraperResp.data?.quotes || [];
     } catch {
-      result.reason = "scraper_unavailable";
-      return res.json(result);
+      issues.push("scraper_unavailable");
     }
 
     result.quotes_available = scraperQuotes.length;
@@ -737,21 +735,31 @@ app.get("/api/alignment/:market", async (req, res) => {
     );
     result.quotes_valid = validQuotes.length;
 
-    if (validQuotes.length === 0) {
-      result.reason = "no_valid_dex_quotes";
-      return res.json(result);
+    // Get DEX price even if stale - for display purposes
+    let latestQuote: any = null;
+    if (validQuotes.length > 0) {
+      latestQuote = validQuotes.reduce((a: any, b: any) =>
+        a.ts > b.ts ? a : b
+      );
+      result.ts_dex = latestQuote.ts;
+      result.dex_exec_price = latestQuote.price_usdt_per_token;
+
+      const dexAgeSec = now / 1000 - latestQuote.ts;
+      if (dexAgeSec > DEX_STALE_SEC) {
+        issues.push(`dex_stale: ${Math.round(dexAgeSec)}s`);
+      }
+    } else {
+      issues.push("no_valid_dex_quotes");
     }
 
-    // Check DEX freshness
-    const latestQuote = validQuotes.reduce((a: any, b: any) =>
-      a.ts > b.ts ? a : b
-    );
-    result.ts_dex = latestQuote.ts;
-    const dexAgeSec = now / 1000 - latestQuote.ts;
-    if (dexAgeSec > DEX_STALE_SEC) {
-      result.reason = `dex_stale: ${Math.round(
-        dexAgeSec
-      )}s > ${DEX_STALE_SEC}s`;
+    // If we have both prices, calculate deviation even if data is stale
+    if (cexMid && result.dex_exec_price) {
+      result.deviation_pct = ((result.dex_exec_price - cexMid) / cexMid) * 100;
+    }
+
+    // If there are critical issues, return with whatever data we have
+    if (issues.length > 0 && (!cexMid || validQuotes.length === 0)) {
+      result.reason = issues.join("; ");
       return res.json(result);
     }
 
@@ -766,7 +774,8 @@ app.get("/api/alignment/:market", async (req, res) => {
 
     // 5. Calculate gap: gap_pct = (P0 - P_cex) / P_cex
     // Positive = DEX higher than CEX, Negative = DEX lower than CEX
-    const gapPct = ((spotPrice - cexMid) / cexMid) * 100;
+    // At this point cexMid is guaranteed non-null (we returned early if critical issues)
+    const gapPct = ((spotPrice - cexMid!) / cexMid!) * 100;
     result.deviation_pct = Math.round(gapPct * 100) / 100;
     const bandPct = bandBps / 100;
 
