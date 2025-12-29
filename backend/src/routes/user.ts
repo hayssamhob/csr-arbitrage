@@ -502,11 +502,28 @@ router.get("/balances", requireAuth, async (req: AuthenticatedRequest, res) => {
           };
         }
       } else if (cred.venue === "lbank" && apiKey) {
-        // LBank - mark as connected, balance fetch not implemented yet
-        exchangeStatuses.lbank = {
-          connected: true,
-          error: null,
-        };
+        // LBank - try to fetch balances if we have a secret
+        if (apiSecret) {
+          try {
+            const lbankBalances = await fetchLbankBalances(apiKey, apiSecret);
+            balances.push(...lbankBalances);
+            exchangeStatuses.lbank = { connected: true, error: null };
+          } catch (balanceErr: any) {
+            exchangeStatuses.lbank = {
+              connected: true,
+              error: `Balance fetch: ${balanceErr.message?.substring(
+                0,
+                50
+              )}...`,
+            };
+          }
+        } else {
+          // No secret - can only do read-only operations
+          exchangeStatuses.lbank = {
+            connected: true,
+            error: "API secret required for balance fetch",
+          };
+        }
       }
     } catch (err: any) {
       console.error(`Error processing ${cred.venue}:`, err.message);
@@ -535,63 +552,87 @@ router.get("/balances", requireAuth, async (req: AuthenticatedRequest, res) => {
   });
 });
 
-// Helper to fetch LATOKEN balances
+// Helper to fetch LATOKEN balances using CCXT
 async function fetchLatokenBalances(
   apiKey: string,
   apiSecret: string
 ): Promise<any[]> {
-  const crypto = require("crypto");
-  const timestamp = Date.now().toString();
-  const method = "GET";
-  const path = "/v2/auth/account";
-
-  // Create signature for LATOKEN API v2
-  // Format: HMAC-SHA512 of (timestamp + method + path)
-  const message = timestamp + method + path;
-  const signature = crypto
-    .createHmac("sha512", apiSecret)
-    .update(message)
-    .digest("hex");
+  const ccxt = require("ccxt");
 
   try {
-    const response = await fetch(`https://api.latoken.com${path}`, {
-      method: "GET",
-      headers: {
-        "X-LA-APIKEY": apiKey,
-        "X-LA-SIGNATURE": signature,
-        "X-LA-DIGEST": "HMAC-SHA512",
-        "X-LA-SIGTIME": timestamp,
-      },
+    const exchange = new ccxt.latoken({
+      apiKey: apiKey,
+      secret: apiSecret,
+      enableRateLimit: true,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`LATOKEN API error: ${response.status} - ${errorText}`);
-    }
+    const balance = await exchange.fetchBalance();
 
-    const data = await response.json();
+    // Transform CCXT balance response to our format
+    const balances: any[] = [];
 
-    // Transform LATOKEN response to our format
-    // LATOKEN returns array of { currency, available, blocked, ... }
-    if (Array.isArray(data)) {
-      return data
-        .filter(
-          (b: any) => parseFloat(b.available) > 0 || parseFloat(b.blocked) > 0
-        )
-        .map((b: any) => ({
+    for (const [currency, data] of Object.entries(balance.total || {})) {
+      const total = data as number;
+      if (total > 0) {
+        const free = (balance.free?.[currency] as number) || 0;
+        const used = (balance.used?.[currency] as number) || 0;
+        balances.push({
           venue: "LATOKEN",
-          asset: b.currency?.toUpperCase() || b.id,
-          available: parseFloat(b.available) || 0,
-          locked: parseFloat(b.blocked) || 0,
-          total: (parseFloat(b.available) || 0) + (parseFloat(b.blocked) || 0),
+          asset: currency.toUpperCase(),
+          available: free,
+          locked: used,
+          total: total,
           usd_value: 0, // Would need price data to calculate
-        }));
+        });
+      }
     }
 
-    return [];
-  } catch (err: any) {
-    console.error("LATOKEN balance fetch error:", err.message);
-    throw err;
+    return balances;
+  } catch (error: any) {
+    console.error("LATOKEN balance fetch error:", error.message);
+    throw new Error(`LATOKEN: ${error.message}`);
+  }
+}
+
+// Helper to fetch LBank balances using CCXT
+async function fetchLbankBalances(
+  apiKey: string,
+  apiSecret: string
+): Promise<any[]> {
+  const ccxt = require("ccxt");
+
+  try {
+    const exchange = new ccxt.lbank({
+      apiKey: apiKey,
+      secret: apiSecret,
+      enableRateLimit: true,
+    });
+
+    const balance = await exchange.fetchBalance();
+
+    // Transform CCXT balance response to our format
+    const balances: any[] = [];
+
+    for (const [currency, data] of Object.entries(balance.total || {})) {
+      const total = data as number;
+      if (total > 0) {
+        const free = (balance.free?.[currency] as number) || 0;
+        const used = (balance.used?.[currency] as number) || 0;
+        balances.push({
+          venue: "LBank",
+          asset: currency.toUpperCase(),
+          available: free,
+          locked: used,
+          total: total,
+          usd_value: 0,
+        });
+      }
+    }
+
+    return balances;
+  } catch (error: any) {
+    console.error("LBank balance fetch error:", error.message);
+    throw new Error(`LBank: ${error.message}`);
   }
 }
 
