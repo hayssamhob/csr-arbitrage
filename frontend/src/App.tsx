@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
 import { AdvancedMetricsCard } from "./components/AdvancedMetricsCard";
 import { AlignmentDisplay } from "./components/AlignmentDisplay";
 import {
@@ -527,71 +526,7 @@ function App() {
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 text-white">
-      {/* Navigation Bar */}
-      <nav className="bg-slate-900/80 border-b border-slate-700/50">
-        <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-12">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⚡</span>
-            <span className="font-bold text-white">CSR Trading</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <NavLink
-              to="/defense"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800"
-                }`
-              }
-            >
-              🛡️ Defense
-            </NavLink>
-            <NavLink
-              to="/arbitrage"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800"
-                }`
-              }
-            >
-              📈 Arbitrage
-            </NavLink>
-            <NavLink
-              to="/inventory"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800"
-                }`
-              }
-            >
-              💰 Inventory
-            </NavLink>
-            <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                `px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800"
-                }`
-              }
-            >
-              ⚙️ Settings
-            </NavLink>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-slate-400">Live</span>
-          </div>
-        </div>
-      </nav>
-
+    <div className="text-white">
       {/* Global Status Bar */}
       <GlobalStatusBar
         services={services}

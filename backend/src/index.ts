@@ -785,7 +785,63 @@ app.get("/api/alignment/:market", async (req, res) => {
     if (gapPct > bandPct) {
       result.direction = "SELL";
       result.status = "SELL_ON_DEX";
-      result.reason = "sell_quoting_not_implemented_yet";
+
+      // SELL logic: Use buy quotes as proxy for sell impact estimation
+      // When selling tokens, price moves DOWN. Estimate required sell size.
+      const neededMovePct = Math.max(0, Math.abs(gapPct) - bandPct);
+
+      // Filter to fresh quotes
+      const freshQuotes = validQuotes
+        .filter((q: any) => {
+          const quoteAge = now / 1000 - q.ts;
+          return quoteAge <= DEX_STALE_SEC;
+        })
+        .map((q: any) => ({
+          ...q,
+          impactPct: Math.abs(
+            ((q.price_usdt_per_token - spotPrice) / spotPrice) * 100
+          ),
+        }))
+        .filter((q: any) => q.impactPct <= maxImpactCap);
+
+      if (freshQuotes.length === 0) {
+        result.reason = `no_fresh_quotes_for_sell: all quotes stale or exceed impact cap`;
+        result.confidence = "NONE";
+        return res.json(result);
+      }
+
+      // Find quote that achieves needed price move (using buy impact as estimate for sell)
+      let targetQuote: any = null;
+      for (const q of freshQuotes) {
+        if (q.impactPct >= neededMovePct) {
+          targetQuote = q;
+          break;
+        }
+      }
+
+      if (!targetQuote) {
+        // Use largest available quote
+        targetQuote = freshQuotes[freshQuotes.length - 1];
+        result.reason = `sell_max_available: need ${neededMovePct.toFixed(
+          2
+        )}% move, using $${
+          targetQuote.amountInUSDT
+        } (${targetQuote.impactPct.toFixed(2)}% impact)`;
+      } else {
+        result.reason = `sell_estimated: $${
+          targetQuote.amountInUSDT
+        } for ${neededMovePct.toFixed(2)}% price correction`;
+      }
+
+      // For SELL: required_tokens = tokens to sell, required_usdt = expected USDT received
+      result.required_tokens =
+        Math.round(targetQuote.amountOutToken * 100) / 100;
+      result.required_usdt = targetQuote.amountInUSDT;
+      result.expected_exec_price = targetQuote.price_usdt_per_token;
+      result.price_impact_pct = Math.round(targetQuote.impactPct * 100) / 100;
+      result.network_cost_usd = targetQuote.gasEstimateUsdt ?? null;
+      result.confidence = freshQuotes.length >= 3 ? "MEDIUM" : "LOW";
+
       return res.json(result);
     }
 
