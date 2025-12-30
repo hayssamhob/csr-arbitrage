@@ -32,6 +32,9 @@ interface HealthData {
     status: string;
     connected: boolean;
     last_message_ts: string;
+    reconnect_count?: number;
+    errors_last_5m?: number;
+    subscription_errors?: Record<string, string>;
   };
   latoken_gateway?: {
     status: string;
@@ -158,32 +161,68 @@ export function DefensePage() {
     const now = Date.now();
     const services: ServiceStatus[] = [];
 
+    // LBank Gateway - CEX for CSR25
     const lbankTs = health?.lbank_gateway?.last_message_ts;
     const lbankAge = lbankTs
       ? Math.floor((now - new Date(lbankTs).getTime()) / 1000)
       : undefined;
+    const lbankConnected = health?.lbank_gateway?.connected;
+    const lbankStatus = health?.lbank_gateway?.status;
     services.push({
       name: "LBank",
-      status: health?.lbank_gateway?.status === "healthy" ? "ok" : "error",
+      status:
+        lbankStatus === "healthy"
+          ? "ok"
+          : lbankConnected === false
+          ? "error"
+          : "warning",
       lastUpdate: lbankTs || "",
       ageSeconds: lbankAge,
       isStale: lbankAge !== undefined && lbankAge > 30,
-      reason: health?.lbank_gateway?.connected ? undefined : "Disconnected",
+      reason: !lbankConnected
+        ? "WebSocket disconnected"
+        : lbankAge && lbankAge > 30
+        ? "Data stale"
+        : undefined,
+      details: {
+        connected: lbankConnected,
+        reconnectCount: health?.lbank_gateway?.reconnect_count,
+        errorsLast5m: health?.lbank_gateway?.errors_last_5m,
+        lastMessageTs: lbankTs,
+        subscriptionErrors: health?.lbank_gateway?.subscription_errors,
+      },
     });
 
+    // LATOKEN Gateway - CEX for CSR
     const latokenTs = health?.latoken_gateway?.last_message_ts;
     const latokenAge = latokenTs
       ? Math.floor((now - new Date(latokenTs).getTime()) / 1000)
       : undefined;
+    const latokenConnected = health?.latoken_gateway?.connected;
+    const latokenStatus = health?.latoken_gateway?.status;
     services.push({
       name: "LATOKEN",
-      status: health?.latoken_gateway?.status === "healthy" ? "ok" : "error",
+      status:
+        latokenStatus === "healthy"
+          ? "ok"
+          : latokenConnected === false
+          ? "error"
+          : "warning",
       lastUpdate: latokenTs || "",
       ageSeconds: latokenAge,
       isStale: latokenAge !== undefined && latokenAge > 30,
-      reason: health?.latoken_gateway?.connected ? undefined : "Disconnected",
+      reason: !latokenConnected
+        ? "Polling stopped"
+        : latokenAge && latokenAge > 30
+        ? "Data stale"
+        : undefined,
+      details: {
+        connected: latokenConnected,
+        lastMessageTs: latokenTs,
+      },
     });
 
+    // DEX CSR - Uniswap scraper for CSR token
     const dexCsrTs = health?.uniswap_quote_csr?.last_quote_ts;
     const dexCsrAge = dexCsrTs
       ? Math.floor((now - new Date(dexCsrTs).getTime()) / 1000)
@@ -195,8 +234,16 @@ export function DefensePage() {
       lastUpdate: dexCsrTs || "",
       ageSeconds: dexCsrAge,
       isStale: dexCsrAge !== undefined && dexCsrAge > 60,
+      reason:
+        dexCsrAge && dexCsrAge > 60
+          ? "Quote stale - scraper may be slow"
+          : undefined,
+      details: {
+        lastMessageTs: dexCsrTs,
+      },
     });
 
+    // DEX CSR25 - Uniswap scraper for CSR25 token
     const dexCsr25Ts = health?.uniswap_quote_csr25?.last_quote_ts;
     const dexCsr25Age = dexCsr25Ts
       ? Math.floor((now - new Date(dexCsr25Ts).getTime()) / 1000)
@@ -208,8 +255,16 @@ export function DefensePage() {
       lastUpdate: dexCsr25Ts || "",
       ageSeconds: dexCsr25Age,
       isStale: dexCsr25Age !== undefined && dexCsr25Age > 60,
+      reason:
+        dexCsr25Age && dexCsr25Age > 60
+          ? "Quote stale - scraper may be slow"
+          : undefined,
+      details: {
+        lastMessageTs: dexCsr25Ts,
+      },
     });
 
+    // Strategy Engine
     services.push({
       name: "Strategy",
       status: health?.strategy?.status === "healthy" ? "ok" : "warning",

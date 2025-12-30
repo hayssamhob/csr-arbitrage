@@ -5,7 +5,10 @@
  * - Per-service health with explicit reason strings
  * - Data freshness timestamps (CEX <30s, DEX <60s)
  * - Execution mode + kill switch
+ * - INSTANT detailed tooltips on hover
  */
+
+import { ServiceTooltipContent, Tooltip } from "./Tooltip";
 
 export interface ServiceStatus {
   name: string;
@@ -14,6 +17,13 @@ export interface ServiceStatus {
   reason?: string; // Explicit reason when not OK
   ageSeconds?: number; // Data age in seconds
   isStale?: boolean; // True if data exceeds freshness threshold
+  details?: {
+    connected?: boolean;
+    reconnectCount?: number;
+    errorsLast5m?: number;
+    lastMessageTs?: string;
+    subscriptionErrors?: Record<string, string>;
+  };
 }
 
 interface GlobalStatusBarProps {
@@ -23,7 +33,10 @@ interface GlobalStatusBarProps {
 
 // Note: Freshness thresholds (CEX: 30s, DEX: 60s) are applied in App.tsx
 
-export function GlobalStatusBar({ services, lastDataUpdate }: GlobalStatusBarProps) {
+export function GlobalStatusBar({
+  services,
+  lastDataUpdate,
+}: GlobalStatusBarProps) {
   const allHealthy = services.every((s) => s.status === "ok" && !s.isStale);
   const hasErrors = services.some(
     (s) => s.status === "error" || s.status === "offline"
@@ -133,55 +146,66 @@ export function GlobalStatusBar({ services, lastDataUpdate }: GlobalStatusBarPro
         </div>
       </div>
 
-      {/* Service Grid */}
+      {/* Service Grid - with INSTANT detailed tooltips */}
       <div className="flex flex-wrap items-center gap-2">
         {services.map((service) => (
-          <div
+          <Tooltip
             key={service.name}
-            className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all duration-300 cursor-default ${
-              service.status === "ok" && !service.isStale
-                ? "bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40"
-                : service.status === "error" || service.status === "offline"
-                ? "bg-red-500/5 border-red-500/30 hover:border-red-500/50"
-                : "bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40"
-            }`}
-            title={`${service.name}: ${service.status}${
-              service.isStale ? " (STALE)" : ""
-            }${service.reason ? ` - ${service.reason}` : ""} | Age: ${
-              service.ageSeconds || "?"
-            }s`}
+            position="bottom"
+            content={
+              <ServiceTooltipContent
+                name={service.name}
+                status={service.status}
+                lastUpdate={service.lastUpdate}
+                ageSeconds={service.ageSeconds}
+                isStale={service.isStale}
+                reason={service.reason}
+                details={service.details}
+              />
+            }
           >
             <div
-              className={`w-2 h-2 rounded-full ${getStatusColor(
-                service.status,
-                service.isStale
-              )} ${getStatusGlow(service.status, service.isStale)}`}
-            />
-            <span
-              className={`text-xs font-medium ${
+              className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer ${
                 service.status === "ok" && !service.isStale
-                  ? "text-emerald-400/80"
+                  ? "bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40"
                   : service.status === "error" || service.status === "offline"
-                  ? "text-red-400/80"
-                  : "text-amber-400/80"
+                  ? "bg-red-500/5 border-red-500/30 hover:border-red-500/50"
+                  : "bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40"
               }`}
             >
-              {service.name}
-            </span>
-            {service.ageSeconds !== undefined && service.ageSeconds < 999 && (
+              <div
+                className={`w-2 h-2 rounded-full ${getStatusColor(
+                  service.status,
+                  service.isStale
+                )} ${getStatusGlow(service.status, service.isStale)}`}
+              />
               <span
-                className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                className={`text-xs font-medium ${
                   service.status === "ok" && !service.isStale
-                    ? "bg-emerald-500/10 text-emerald-500/60"
+                    ? "text-emerald-400/80"
                     : service.status === "error" || service.status === "offline"
-                    ? "bg-red-500/10 text-red-500/60"
-                    : "bg-amber-500/10 text-amber-500/60"
+                    ? "text-red-400/80"
+                    : "text-amber-400/80"
                 }`}
               >
-                {service.ageSeconds}s
+                {service.name}
               </span>
-            )}
-          </div>
+              {service.ageSeconds !== undefined && service.ageSeconds < 999 && (
+                <span
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                    service.status === "ok" && !service.isStale
+                      ? "bg-emerald-500/10 text-emerald-500/60"
+                      : service.status === "error" ||
+                        service.status === "offline"
+                      ? "bg-red-500/10 text-red-500/60"
+                      : "bg-amber-500/10 text-amber-500/60"
+                  }`}
+                >
+                  {service.ageSeconds}s
+                </span>
+              )}
+            </div>
+          </Tooltip>
         ))}
       </div>
 

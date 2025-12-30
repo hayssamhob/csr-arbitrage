@@ -1441,7 +1441,7 @@ const TX_CACHE_TTL_MS = 30000;
 
 // Get wallet transactions via server-side Etherscan API
 router.get(
-  "/me/transactions",
+  "/transactions",
   requireAuth,
   async (req: AuthenticatedRequest, res) => {
     try {
@@ -1453,12 +1453,21 @@ router.get(
       const cacheKey = `tx:${wallet.toLowerCase()}`;
       const cached = txCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < TX_CACHE_TTL_MS) {
-        return res.json({ transactions: cached.data, source: "cache", cache_age_ms: Date.now() - cached.timestamp });
+        return res.json({
+          transactions: cached.data,
+          source: "cache",
+          cache_age_ms: Date.now() - cached.timestamp,
+        });
       }
 
       const etherscanApiKey = process.env.ETHERSCAN_API_KEY;
       if (!etherscanApiKey) {
-        return res.status(500).json({ error: "Etherscan API key not configured", reason: "missing_api_key" });
+        return res
+          .status(500)
+          .json({
+            error: "Etherscan API key not configured",
+            reason: "missing_api_key",
+          });
       }
 
       // Fetch ETH and ERC20 transactions in parallel with retry logic
@@ -1466,23 +1475,30 @@ router.get(
         for (let i = 0; i < retries; i++) {
           try {
             const response = await axios.get(url, { timeout: 10000 });
-            if (response.data.status === "0" && response.data.message === "NOTOK") {
+            if (
+              response.data.status === "0" &&
+              response.data.message === "NOTOK"
+            ) {
               if (response.data.result?.includes("rate limit")) {
-                await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+                await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
                 continue;
               }
             }
             return response.data;
           } catch (err: any) {
             if (i === retries - 1) throw err;
-            await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+            await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
           }
         }
       };
 
       const [ethData, tokenData] = await Promise.all([
-        fetchWithRetry(`https://api.etherscan.io/api?module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${etherscanApiKey}`),
-        fetchWithRetry(`https://api.etherscan.io/api?module=account&action=tokentx&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${etherscanApiKey}`)
+        fetchWithRetry(
+          `https://api.etherscan.io/api?module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${etherscanApiKey}`
+        ),
+        fetchWithRetry(
+          `https://api.etherscan.io/api?module=account&action=tokentx&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${etherscanApiKey}`
+        ),
       ]);
 
       const transactions: any[] = [];
@@ -1513,10 +1529,12 @@ router.get(
           const decimals = parseInt(tx.tokenDecimal) || 18;
           const isSend = tx.from.toLowerCase() === wallet.toLowerCase();
           // Detect swaps (same tx hash appears twice with different tokens)
-          const isSwap = transactions.some(t => t.hash === tx.hash && t.asset !== tx.tokenSymbol);
+          const isSwap = transactions.some(
+            (t) => t.hash === tx.hash && t.asset !== tx.tokenSymbol
+          );
           transactions.push({
             hash: tx.hash,
-            kind: isSwap ? "SWAP" : (isSend ? "SEND" : "RECEIVE"),
+            kind: isSwap ? "SWAP" : isSend ? "SEND" : "RECEIVE",
             asset: tx.tokenSymbol || "TOKEN",
             amount: (parseFloat(tx.value) / Math.pow(10, decimals)).toFixed(6),
             timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
@@ -1530,22 +1548,28 @@ router.get(
       }
 
       // Sort by timestamp and dedupe
-      transactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      transactions.sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
       const uniqueTxs = transactions.slice(0, 20);
 
       // Cache the result
       txCache.set(cacheKey, { data: uniqueTxs, timestamp: Date.now() });
 
-      res.json({ 
-        transactions: uniqueTxs, 
+      res.json({
+        transactions: uniqueTxs,
         source: "etherscan",
-        fetched_at: new Date().toISOString()
+        fetched_at: new Date().toISOString(),
       });
     } catch (error: any) {
       console.error("Transaction fetch error:", error.message);
-      const reason = error.code === "ECONNABORTED" ? "timeout" 
-        : error.response?.status === 429 ? "rate_limited"
-        : "api_error";
+      const reason =
+        error.code === "ECONNABORTED"
+          ? "timeout"
+          : error.response?.status === 429
+          ? "rate_limited"
+          : "api_error";
       res.status(500).json({ error: error.message, reason });
     }
   }
