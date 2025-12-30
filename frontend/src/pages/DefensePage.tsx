@@ -7,6 +7,7 @@ import { AdvancedMetricsCard } from "../components/AdvancedMetricsCard";
 import { AlignmentDisplay } from "../components/AlignmentDisplay";
 import { GlobalStatusBar, type ServiceStatus } from "../components/GlobalStatusBar";
 import { QuoteLadder } from "../components/QuoteLadder";
+import { ReadinessScore } from "../components/ReadinessScore";
 import { RecentSwaps } from "../components/RecentSwaps";
 import { SystemHealthPanel } from "../components/SystemHealthPanel";
 
@@ -297,9 +298,10 @@ export function DefensePage() {
       />
 
       <div className="max-w-7xl mx-auto px-4 py-4">
-        {/* System Health Panel */}
-        <div className="mb-4">
+        {/* System Health + Readiness Score */}
+        <div className="mb-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
           <SystemHealthPanel />
+          <ReadinessScore />
         </div>
 
         <div className="mb-6">
