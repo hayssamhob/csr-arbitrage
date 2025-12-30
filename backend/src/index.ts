@@ -168,11 +168,43 @@ const priceHistory: {
 
 const MAX_HISTORY_POINTS = 100;
 
+// Persist price snapshot to Supabase (global, not user-specific)
+async function persistPriceSnapshot(market: string, point: PricePoint) {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) return;
+    
+    const response = await axios.post(
+      `${supabaseUrl}/rest/v1/price_snapshots`,
+      {
+        market,
+        cex_price: point.cex_price,
+        dex_price: point.dex_price,
+        spread_bps: point.spread_bps,
+        timestamp: point.ts,
+      },
+      {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+      }
+    );
+  } catch (err) {
+    // Silently fail - don't block main flow for persistence errors
+  }
+}
+
 function addPricePoint(market: "csr_usdt" | "csr25_usdt", point: PricePoint) {
   priceHistory[market].push(point);
   if (priceHistory[market].length > MAX_HISTORY_POINTS) {
     priceHistory[market].shift();
   }
+  // Also persist to Supabase (async, non-blocking)
+  persistPriceSnapshot(market, point);
 }
 
 // Fetch data from microservices
