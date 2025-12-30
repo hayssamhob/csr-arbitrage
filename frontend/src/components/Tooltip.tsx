@@ -1,9 +1,11 @@
 /**
  * Tooltip - INSTANT hover tooltip (no delay)
+ * Uses React Portal to escape overflow:hidden containers
  * Supports both string and ReactNode content for rich tooltips
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 interface TooltipProps {
   content: ReactNode;
@@ -19,29 +21,78 @@ export function Tooltip({
   maxWidth = "320px",
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  const positionClasses = {
-    top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
-    bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
-    left: "right-full top-1/2 -translate-y-1/2 mr-2",
-    right: "left-full top-1/2 -translate-y-1/2 ml-2",
-  };
+  useEffect(() => {
+    if (isVisible && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const tooltipRect = tooltipRef.current?.getBoundingClientRect();
+      const tooltipWidth = tooltipRect?.width || 200;
+      const tooltipHeight = tooltipRect?.height || 50;
+
+      let top = 0;
+      let left = 0;
+
+      switch (position) {
+        case "top":
+          top = rect.top - tooltipHeight - 8;
+          left = rect.left + rect.width / 2 - tooltipWidth / 2;
+          break;
+        case "bottom":
+          top = rect.bottom + 8;
+          left = rect.left + rect.width / 2 - tooltipWidth / 2;
+          break;
+        case "left":
+          top = rect.top + rect.height / 2 - tooltipHeight / 2;
+          left = rect.left - tooltipWidth - 8;
+          break;
+        case "right":
+          top = rect.top + rect.height / 2 - tooltipHeight / 2;
+          left = rect.right + 8;
+          break;
+      }
+
+      // Keep tooltip within viewport
+      const padding = 8;
+      left = Math.max(
+        padding,
+        Math.min(left, window.innerWidth - tooltipWidth - padding)
+      );
+      top = Math.max(
+        padding,
+        Math.min(top, window.innerHeight - tooltipHeight - padding)
+      );
+
+      setTooltipPosition({ top, left });
+    }
+  }, [isVisible, position]);
 
   return (
     <span
+      ref={triggerRef}
       className="relative inline-flex"
       onMouseEnter={() => setIsVisible(true)}
       onMouseLeave={() => setIsVisible(false)}
     >
       {children}
-      {isVisible && (
-        <div
-          className={`absolute z-[9999] px-3 py-2 text-xs text-white bg-slate-900 border border-slate-600 rounded-lg shadow-2xl ${positionClasses[position]}`}
-          style={{ maxWidth, minWidth: "200px" }}
-        >
-          {content}
-        </div>
-      )}
+      {isVisible &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            className="fixed z-[99999] px-3 py-2 text-xs text-white bg-slate-900 border border-slate-600 rounded-lg shadow-2xl pointer-events-none"
+            style={{
+              top: tooltipPosition.top,
+              left: tooltipPosition.left,
+              maxWidth,
+              minWidth: "200px",
+            }}
+          >
+            {content}
+          </div>,
+          document.body
+        )}
     </span>
   );
 }
