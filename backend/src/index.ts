@@ -1733,8 +1733,8 @@ wss.on('connection', (ws: WebSocket) => {
   });
 });
 
-// Start server
-server.listen(PORT, () => {
+// Start server - bind to 0.0.0.0 explicitly for IPv4 compatibility
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend API server running on port ${PORT}`);
   console.log(`WebSocket server running on ws://localhost:${PORT}/ws`);
 });
