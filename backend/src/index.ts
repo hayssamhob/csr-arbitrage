@@ -889,8 +889,8 @@ app.get("/api/alignment", async (req, res) => {
 });
 
 // DEBUG endpoint - shows full computation details
-// Debug logic removed (depends on scraper)
-res.status(501).json({ error: "Debug endpoint needs reimplementation for Redis V4 Model" });
+app.get("/api/alignment/debug/:market", async (req, res) => {
+  res.status(501).json({ error: "Debug endpoint needs reimplementation for Redis V4 Model" });
 });
 
 app.get("/api/debug/timestamps", async (_req, res) => {
@@ -899,72 +899,6 @@ app.get("/api/debug/timestamps", async (_req, res) => {
 
 app.get("/api/ladder/:token", async (req, res) => {
   res.status(501).json({ error: "Ladder endpoint needs reimplementation for Redis V4 Model" });
-});
-const now = Date.now();
-
-// Get CEX mid for deviation calculation
-let cexMid: number | null = null;
-if (token === "CSR") {
-  const latoken = dashboardData.market_state?.csr_usdt?.latoken_ticker;
-  if (latoken?.bid && latoken?.ask) {
-    cexMid = (latoken.bid + latoken.ask) / 2;
-  }
-} else {
-  const lbank = dashboardData.market_state?.csr25_usdt?.lbank_ticker;
-  if (lbank?.bid && lbank?.ask) {
-    cexMid = (lbank.bid + lbank.ask) / 2;
-  }
-}
-
-// Get spot price from smallest valid quote
-const validQuotes = quotes.filter(
-  (q: any) => q.valid && q.price_usdt_per_token > 0
-);
-const spotPrice =
-  validQuotes.length > 0
-    ? validQuotes.reduce((a: any, b: any) =>
-      a.amountInUSDT < b.amountInUSDT ? a : b
-    ).price_usdt_per_token
-    : null;
-
-// Enrich quotes with calculated fields
-const enrichedQuotes = quotes.map((q: any) => {
-  const ageSeconds = q.ts ? Math.round(now / 1000 - q.ts) : null;
-  const impactPct =
-    spotPrice && q.price_usdt_per_token > 0
-      ? ((q.price_usdt_per_token - spotPrice) / spotPrice) * 100
-      : null;
-  const deviationPct =
-    cexMid && q.price_usdt_per_token > 0
-      ? ((q.price_usdt_per_token - cexMid) / cexMid) * 100
-      : null;
-
-  return {
-    usdt_in: q.amountInUSDT,
-    tokens_out: q.amountOutToken,
-    exec_price: q.price_usdt_per_token,
-    price_impact_pct:
-      impactPct !== null ? Math.round(impactPct * 100) / 100 : null,
-    deviation_pct:
-      deviationPct !== null ? Math.round(deviationPct * 100) / 100 : null,
-    gas_usdt: q.gasEstimateUsdt || null,
-    age_seconds: ageSeconds,
-    valid: q.valid,
-    error: q.error || null,
-  };
-});
-
-res.json({
-  token,
-  cex_mid: cexMid,
-  spot_price: spotPrice,
-  quotes: enrichedQuotes,
-  total: quotes.length,
-  valid: validQuotes.length,
-});
-  } catch (error: any) {
-  res.status(500).json({ error: error.message });
-}
 });
 
 // ============================================================================
