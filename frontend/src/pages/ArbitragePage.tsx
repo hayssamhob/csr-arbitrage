@@ -791,33 +791,8 @@ export function ArbitragePage() {
               csrDecision?.direction === "buy_dex_sell_cex"
                 ? "BUY_DEX_SELL_CEX"
                 : "BUY_CEX_SELL_DEX",
-            is_actionable: (() => {
-              // Allow trades if edge meets threshold - user decides on staleness risk
-              if (userLimits.kill_switch) return false;
-              return Math.abs(edgeBps) >= (userLimits.min_edge_bps || 50);
-            })(),
-            reason: (() => {
-              const cexStale = isDataStale(
-                csrLatoken.ts,
-                STALENESS_THRESHOLD_CEX_MS
-              );
-              const dexStale = isDataStale(
-                csrDex.ts,
-                STALENESS_THRESHOLD_DEX_MS
-              );
-              if (cexStale)
-                return `stale_cex_data (${getDataAge(csrLatoken.ts)}s old)`;
-              if (dexStale)
-                return `stale_dex_data (${getDataAge(csrDex.ts)}s old)`;
-              if (!userLimits.loaded) return "settings_not_loaded";
-              if (userLimits.kill_switch) return "kill_switch_active";
-              return (
-                csrDecision?.reason ??
-                (Math.abs(edgeBps) >= userLimits.min_edge_bps
-                  ? `Edge ${edgeBps}bps exceeds threshold ${userLimits.min_edge_bps}bps`
-                  : `Edge ${edgeBps}bps below threshold ${userLimits.min_edge_bps}bps`)
-              );
-            })(),
+            is_actionable: true,
+            reason: edgeBps >= 50 ? "profitable" : "ready",
           });
         }
 
@@ -883,33 +858,8 @@ export function ArbitragePage() {
               csr25Decision?.direction === "buy_dex_sell_cex"
                 ? "BUY_DEX_SELL_CEX"
                 : "BUY_CEX_SELL_DEX",
-            is_actionable: (() => {
-              // Allow trades if edge meets threshold - user decides on staleness risk
-              if (userLimits.kill_switch) return false;
-              return Math.abs(edgeBps) >= (userLimits.min_edge_bps || 50);
-            })(),
-            reason: (() => {
-              const cexStale = isDataStale(
-                csr25Lbank.ts,
-                STALENESS_THRESHOLD_CEX_MS
-              );
-              const dexStale = isDataStale(
-                csr25Dex.ts,
-                STALENESS_THRESHOLD_DEX_MS
-              );
-              if (cexStale)
-                return `stale_cex_data (${getDataAge(csr25Lbank.ts)}s old)`;
-              if (dexStale)
-                return `stale_dex_data (${getDataAge(csr25Dex.ts)}s old)`;
-              if (!userLimits.loaded) return "settings_not_loaded";
-              if (userLimits.kill_switch) return "kill_switch_active";
-              return (
-                csr25Decision?.reason ??
-                (Math.abs(edgeBps) >= userLimits.min_edge_bps
-                  ? `Edge ${edgeBps}bps exceeds threshold ${userLimits.min_edge_bps}bps`
-                  : `Edge ${edgeBps}bps below threshold ${userLimits.min_edge_bps}bps`)
-              );
-            })(),
+            is_actionable: true,
+            reason: edgeBps >= 50 ? "profitable" : "ready",
           });
         }
 
@@ -1395,36 +1345,63 @@ export function ArbitragePage() {
                         {opp.direction.replace(/_/g, " ")}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex flex-col items-center gap-1">
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-2">
+                        {/* Primary Action Buttons - Direct Links to Exchanges */}
+                        {opp.direction === "BUY_CEX_SELL_DEX" ? (
+                          <>
+                            <a
+                              href={getExchangeUrl(opp.cex_venue, opp.market)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`px-4 py-2 rounded-lg text-sm font-bold text-center transition-all transform hover:scale-105 ${
+                                opp.edge_bps >= 50
+                                  ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 animate-pulse"
+                                  : "bg-emerald-600 text-white hover:bg-emerald-500"
+                              }`}
+                            >
+                              🛒 BUY on {opp.cex_venue}
+                            </a>
+                            <a
+                              href={getDexUrl(opp.market)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2 rounded-lg text-sm font-bold text-center bg-red-600 text-white hover:bg-red-500 transition-all transform hover:scale-105"
+                            >
+                              💸 SELL on Uniswap
+                            </a>
+                          </>
+                        ) : (
+                          <>
+                            <a
+                              href={getDexUrl(opp.market)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`px-4 py-2 rounded-lg text-sm font-bold text-center transition-all transform hover:scale-105 ${
+                                opp.edge_bps >= 50
+                                  ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 animate-pulse"
+                                  : "bg-emerald-600 text-white hover:bg-emerald-500"
+                              }`}
+                            >
+                              🛒 BUY on Uniswap
+                            </a>
+                            <a
+                              href={getExchangeUrl(opp.cex_venue, opp.market)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2 rounded-lg text-sm font-bold text-center bg-red-600 text-white hover:bg-red-500 transition-all transform hover:scale-105"
+                            >
+                              💸 SELL on {opp.cex_venue}
+                            </a>
+                          </>
+                        )}
+                        {/* Paper Trade Button */}
                         <button
                           onClick={() => handleExecute(opp)}
-                          disabled={state.kill_switch || !opp.is_actionable}
-                          className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                            state.kill_switch
-                              ? "bg-slate-700 text-slate-500 cursor-not-allowed"
-                              : !opp.is_actionable
-                              ? "bg-amber-600/50 text-amber-200 cursor-not-allowed"
-                              : opp.edge_bps >= 50
-                              ? "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-500/30 animate-pulse"
-                              : "bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/30"
-                          }`}
-                          title={
-                            opp.is_actionable
-                              ? "Click to execute trade"
-                              : opp.reason
-                          }
+                          className="px-3 py-1 rounded text-xs font-medium bg-slate-700 text-slate-300 hover:bg-slate-600 transition-all"
                         >
-                          ⚡{" "}
-                          {state.mode === "PAPER"
-                            ? "Paper Trade"
-                            : "Execute Arb"}
+                          📝 Log Trade
                         </button>
-                        {!opp.is_actionable && (
-                          <span className="text-amber-400 text-xs">
-                            ⚠️ {opp.reason?.replace(/_/g, " ")}
-                          </span>
-                        )}
                       </div>
                     </td>
                   </tr>
