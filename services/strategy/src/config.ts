@@ -34,8 +34,8 @@ const ConfigSchema = z.object({
   // DEX LP fee in basis points (Uniswap v3/v4: 5, 30, or 100 bps depending on pool)
   DEX_LP_FEE_BPS: z.coerce.number().min(0).default(30),
 
-  // Estimated gas cost for DEX swap in USDT
-  GAS_COST_USDT: z.coerce.number().min(0).default(5),
+  // Estimated gas cost for DEX swap in USDT (V4 is more gas efficient)
+  GAS_COST_USDT: z.coerce.number().min(0).default(0.15),
 
   // Rebalance cost in bps (amortized, off by default for Pattern C inventory arbitrage)
   // Only enable if you need to periodically rebalance inventory across venues

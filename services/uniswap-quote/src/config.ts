@@ -116,17 +116,60 @@ export function loadConfig(): Config {
   };
 }
 
-// Contract addresses for reference (verified mainnet from docs.uniswap.org/contracts/v4/deployments)
+// ============================================================================
+// Verified Uniswap V4 Contract Addresses (Ethereum Mainnet)
+// Source: docs.uniswap.org/contracts/v4/deployments
+// ============================================================================
+export const UNISWAP_V4 = {
+  // Core singleton contracts
+  POOL_MANAGER: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+  STATE_VIEW: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227",
+  QUOTER: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
+  UNIVERSAL_ROUTER: "0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af",
+};
+
+// Token addresses (checksummed)
+export const TOKENS = {
+  CSR: "0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
+  CSR25: "0x502E7230E142A332DFEd1095F7174834b2548982",
+  WETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+  USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+};
+
+// V4 Pool Parameters
+export const POOL_PARAMS = {
+  CSR_USDT: {
+    currency0: TOKENS.CSR,
+    currency1: TOKENS.USDT,
+    fee: 3000, // 0.3%
+    tickSpacing: 60,
+    hooks: "0x0000000000000000000000000000000000000000",
+  },
+  CSR25_USDT: {
+    currency0: TOKENS.CSR25,
+    currency1: TOKENS.USDT,
+    fee: 3000, // 0.3%
+    tickSpacing: 60,
+    hooks: "0x0000000000000000000000000000000000000000",
+  },
+};
+
+// Fee constants for edge calculation
+export const FEE_CONSTANTS = {
+  V4_LP_FEE_BPS: 30, // 0.3% = 30 basis points
+  ESTIMATED_GAS_USD: 0.15, // $0.15 gas buffer
+  MIN_NET_EDGE_BPS: 50, // 0.5% minimum net edge to trade
+};
+
+// Legacy export for compatibility
 export const CONTRACTS = {
-  // Official Uniswap V4 contracts on Ethereum mainnet
-  UNISWAP_V4_MANAGER: "0x000000000004444c5dc75cB358380D2e3dE08A90",
-  UNISWAP_V4_STATE_VIEW: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227",
-  UNISWAP_V4_QUOTER: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
-  // Token addresses (checksummed)
-  CSR_TOKEN: "0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
-  CSR25_TOKEN: "0x502E7230E142A332DFEd1095F7174834b2548982",
-  WETH_TOKEN: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-  USDT_TOKEN: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  UNISWAP_V4_MANAGER: UNISWAP_V4.POOL_MANAGER,
+  UNISWAP_V4_STATE_VIEW: UNISWAP_V4.STATE_VIEW,
+  UNISWAP_V4_QUOTER: UNISWAP_V4.QUOTER,
+  CSR_TOKEN: TOKENS.CSR,
+  CSR25_TOKEN: TOKENS.CSR25,
+  WETH_TOKEN: TOKENS.WETH,
+  USDT_TOKEN: TOKENS.USDT,
 };
 
 console.log(`[Config] Loaded for environment: ${config.NODE_ENV}`);

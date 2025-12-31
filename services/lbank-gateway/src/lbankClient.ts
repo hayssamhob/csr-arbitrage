@@ -305,8 +305,9 @@ export class LBankClient extends EventEmitter {
 
   private sendPong(ping: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      // LBank V2 pong format - just echo back the ping value
-      this.ws.send(JSON.stringify({ pong: ping }));
+      // LBank V2 pong format - must include 'action' parameter
+      // Reference: https://www.lbank.com/en-US/docs/index.html#websocket-api
+      this.ws.send(JSON.stringify({ action: "pong", pong: ping }));
       this.onLog("debug", "pong_sent", { ping });
     }
   }

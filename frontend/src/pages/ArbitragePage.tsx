@@ -695,10 +695,26 @@ export function ArbitragePage() {
           });
           setLimitsError(null);
         } else {
-          setLimitsError("settings_not_loaded: Failed to fetch risk limits");
+          // Use safe defaults if API fails - allows monitoring but blocks execution
+          setUserLimits({
+            min_edge_bps: 50,
+            max_order_usdt: 100,
+            max_slippage_bps: 100,
+            kill_switch: true, // Kill switch ON by default for safety
+            loaded: true,
+          });
+          setLimitsError("Using default limits - update in Settings");
         }
       } catch (err) {
-        setLimitsError("settings_not_loaded: Network error");
+        // Use safe defaults on network error - allows monitoring but blocks execution
+        setUserLimits({
+          min_edge_bps: 50,
+          max_order_usdt: 100,
+          max_slippage_bps: 100,
+          kill_switch: true,
+          loaded: true,
+        });
+        setLimitsError("Using default limits - check Settings");
       }
     };
     fetchLimits();
@@ -729,27 +745,27 @@ export function ArbitragePage() {
           // Calculate max safe size based on user's available balances
           const userMaxSize = userInventory
             ? calculateMaxTradeSize({
-              market: "CSR/USDT",
-              cex_venue: "LATOKEN",
-              cex_bid: csrLatoken.bid,
-              cex_ask: csrLatoken.ask,
-              cex_mid: cexMid,
-              cex_ts: csrLatoken.ts,
-              dex_exec_price: dexPrice,
-              dex_quote_size: 1000,
-              dex_price_impact: 0.5,
-              dex_gas_usd: 0.01,
-              dex_ts: csrDex.ts,
-              edge_bps: edgeBps,
-              edge_usd: edgeUsd,
-              max_safe_size: 10000, // High default, will be limited by balance
-              direction:
-                csrDecision?.direction === "buy_dex_sell_cex"
-                  ? "BUY_DEX_SELL_CEX"
-                  : "BUY_CEX_SELL_DEX",
-              is_actionable: true,
-              reason: "",
-            })
+                market: "CSR/USDT",
+                cex_venue: "LATOKEN",
+                cex_bid: csrLatoken.bid,
+                cex_ask: csrLatoken.ask,
+                cex_mid: cexMid,
+                cex_ts: csrLatoken.ts,
+                dex_exec_price: dexPrice,
+                dex_quote_size: 1000,
+                dex_price_impact: 0.5,
+                dex_gas_usd: 0.01,
+                dex_ts: csrDex.ts,
+                edge_bps: edgeBps,
+                edge_usd: edgeUsd,
+                max_safe_size: 10000, // High default, will be limited by balance
+                direction:
+                  csrDecision?.direction === "buy_dex_sell_cex"
+                    ? "BUY_DEX_SELL_CEX"
+                    : "BUY_CEX_SELL_DEX",
+                is_actionable: true,
+                reason: "",
+              })
             : 1000; // Default if no inventory loaded
 
           const maxSafeSize = Math.max(10, Math.min(userMaxSize, 10000));
@@ -831,27 +847,27 @@ export function ArbitragePage() {
           // Calculate max safe size based on user's available balances
           const csr25UserMaxSize = userInventory
             ? calculateMaxTradeSize({
-              market: "CSR25/USDT",
-              cex_venue: "LBank",
-              cex_bid: csr25Lbank.bid,
-              cex_ask: csr25Lbank.ask,
-              cex_mid: cexMid,
-              cex_ts: csr25Lbank.ts,
-              dex_exec_price: dexPrice,
-              dex_quote_size: 1000,
-              dex_price_impact: 0.3,
-              dex_gas_usd: 0.01,
-              dex_ts: csr25Dex.ts,
-              edge_bps: edgeBps,
-              edge_usd: 0,
-              max_safe_size: 10000,
-              direction:
-                csr25Decision?.direction === "buy_dex_sell_cex"
-                  ? "BUY_DEX_SELL_CEX"
-                  : "BUY_CEX_SELL_DEX",
-              is_actionable: true,
-              reason: "",
-            })
+                market: "CSR25/USDT",
+                cex_venue: "LBank",
+                cex_bid: csr25Lbank.bid,
+                cex_ask: csr25Lbank.ask,
+                cex_mid: cexMid,
+                cex_ts: csr25Lbank.ts,
+                dex_exec_price: dexPrice,
+                dex_quote_size: 1000,
+                dex_price_impact: 0.3,
+                dex_gas_usd: 0.01,
+                dex_ts: csr25Dex.ts,
+                edge_bps: edgeBps,
+                edge_usd: 0,
+                max_safe_size: 10000,
+                direction:
+                  csr25Decision?.direction === "buy_dex_sell_cex"
+                    ? "BUY_DEX_SELL_CEX"
+                    : "BUY_CEX_SELL_DEX",
+                is_actionable: true,
+                reason: "",
+              })
             : 1000;
 
           const csr25MaxSafeSize = Math.max(
@@ -1293,7 +1309,7 @@ export function ArbitragePage() {
                   <th className="px-4 py-3 font-medium text-right">
                     DEX Price
                   </th>
-                  <th className="px-4 py-3 font-medium text-right">Edge</th>
+                  <th className="px-4 py-3 font-medium text-right">Net Edge</th>
                   <th className="px-4 py-3 font-medium text-right">Max Size</th>
                   <th className="px-4 py-3 font-medium">Direction</th>
                   <th className="px-4 py-3 font-medium text-center">Action</th>
@@ -1369,7 +1385,7 @@ export function ArbitragePage() {
                                 : "text-red-400/70"
                             }`}
                           >
-                            ${opp.edge_usd.toFixed(2)}
+                            Net: ${opp.edge_usd.toFixed(2)}
                           </div>
                         </div>
                       </div>
