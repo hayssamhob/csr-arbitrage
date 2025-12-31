@@ -6,14 +6,17 @@ import { z } from 'zod';
 // ============================================================================
 
 const ConfigSchema = z.object({
-  // Execution mode: off (monitoring only), paper (simulate), live (execute)
-  EXECUTION_MODE: z.enum(["off", "paper", "live"]).default("off"),
+  // Execution mode: off (monitoring only), paper/dry-run (simulate), live (execute)
+  EXECUTION_MODE: z.enum(["off", "paper", "dry-run", "live"]).default("off"),
 
   // WebSocket URLs
   LBANK_GATEWAY_WS_URL: z.string().url().default("ws://localhost:8080"),
   LATOKEN_GATEWAY_WS_URL: z.string().url().default("ws://localhost:8081"),
   UNISWAP_QUOTE_URL: z.string().url().default("http://localhost:3002"),
   UNISWAP_QUOTE_CSR_URL: z.string().url().default("http://localhost:3005"),
+
+  // Redis URL for Event Bus
+  REDIS_URL: z.string().default("redis://localhost:6379"),
 
   // Symbols to monitor (comma-separated)
   SYMBOLS: z.string().default("csr_usdt,csr25_usdt"),
@@ -52,7 +55,7 @@ const ConfigSchema = z.object({
   MAX_STALENESS_SECONDS: z.coerce.number().positive().default(30),
 
   // HTTP port for health endpoints
-  HTTP_PORT: z.coerce.number().int().positive().default(3003),
+  HTTP_PORT: z.coerce.number().int().positive().default(3005),
 
   // Log level
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -63,11 +66,10 @@ export type Config = z.infer<typeof ConfigSchema>;
 export function loadConfig(): Config {
   const rawConfig = {
     EXECUTION_MODE: process.env.EXECUTION_MODE,
-    LBANK_GATEWAY_WS_URL: process.env.LBANK_GATEWAY_WS_URL,
-    LATOKEN_GATEWAY_WS_URL: process.env.LATOKEN_GATEWAY_WS_URL,
     UNISWAP_QUOTE_URL: process.env.UNISWAP_QUOTE_URL,
-    SYMBOLS: process.env.SYMBOLS,
     UNISWAP_QUOTE_CSR_URL: process.env.UNISWAP_QUOTE_CSR_URL,
+    REDIS_URL: process.env.REDIS_URL,
+    SYMBOLS: process.env.SYMBOLS,
     QUOTE_SIZE_USDT: process.env.QUOTE_SIZE_USDT,
     MIN_EDGE_BPS: process.env.MIN_EDGE_BPS,
     CEX_TRADING_FEE_BPS: process.env.CEX_TRADING_FEE_BPS,

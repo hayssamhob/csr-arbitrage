@@ -1,26 +1,28 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import WebSocket, { WebSocketServer } from 'ws';
+import Redis from 'ioredis';
+import { v4 as uuidv4 } from 'uuid';
 import { getSymbolsList, loadConfig } from './config';
 import { createHealthServer } from './health';
 import { LBankClient } from './lbankClient';
+// Relative import to shared package (Must be supported by build context)
+import { MarketTick, TOPICS } from '../../../packages/shared/src';
 import { LBankDepthEvent, LBankTickerEvent } from './schemas';
 
 // ============================================================================
-// LBank Gateway Service
-// Connects to LBank WebSocket, normalizes data, broadcasts via internal WS
-// Per architecture.md: Market Data Gateway component
+// LBank Gateway Service (Redis Stream Edition)
+// Connects to LBank WebSocket, normalizes data, publishes to Redis 'market.data'
 // ============================================================================
 
-// Structured logger (inline for simplicity, matches shared/logger pattern)
+// Structured logger
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 const LOG_LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 function log(level: LogLevel, event: string, data?: Record<string, unknown>): void {
   const minLevel = (process.env.LOG_LEVEL || 'info') as LogLevel;
   if (LOG_LEVELS[level] < LOG_LEVELS[minLevel]) return;
-  
+
   const entry = {
     level,
     service: 'lbank-gateway',
@@ -28,22 +30,17 @@ function log(level: LogLevel, event: string, data?: Record<string, unknown>): vo
     ts: new Date().toISOString(),
     ...data,
   };
-  const output = JSON.stringify(entry);
-  
-  if (level === 'error') console.error(output);
-  else if (level === 'warn') console.warn(output);
-  else console.log(output);
+  console.log(JSON.stringify(entry));
 }
 
-// Error tracking for health endpoint
+// Error tracking
 let errorCount = 0;
-const errorWindow: number[] = []; // timestamps of errors
-const ERROR_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const errorWindow: number[] = [];
+const ERROR_WINDOW_MS = 5 * 60 * 1000;
 
 function trackError(): void {
   const now = Date.now();
   errorWindow.push(now);
-  // Prune old errors
   while (errorWindow.length > 0 && errorWindow[0] < now - ERROR_WINDOW_MS) {
     errorWindow.shift();
   }
@@ -60,122 +57,105 @@ function getErrorCount(): number {
 
 // Main entry point
 async function main(): Promise<void> {
-  log('info', 'starting', { version: '1.0.0' });
+  log('info', 'starting', { version: '2.0.0-redis' });
 
-  // Load and validate config
+  // Load config
   const config = loadConfig();
   const symbols = getSymbolsList(config);
-  
+
   log('info', 'config_loaded', {
     wsUrl: config.LBANK_WS_URL,
     symbols,
-    httpPort: config.HTTP_PORT,
-    wsPort: config.INTERNAL_WS_PORT,
-    maxStalenessSeconds: config.MAX_STALENESS_SECONDS,
+    redisUrl: config.REDIS_URL,
   });
 
-  // Create internal WebSocket server for broadcasting
-  const wss = new WebSocketServer({ port: config.INTERNAL_WS_PORT });
-  const clients = new Set<WebSocket>();
-
-  wss.on('connection', (ws) => {
-    log('info', 'client_connected', { totalClients: clients.size + 1 });
-    clients.add(ws);
-
-    ws.on('close', () => {
-      clients.delete(ws);
-      log('info', 'client_disconnected', { totalClients: clients.size });
-    });
-
-    ws.on('error', (err) => {
-      log('warn', 'client_error', { error: err.message });
-      clients.delete(ws);
-    });
+  // Connect to Redis
+  const redis = new Redis(config.REDIS_URL, {
+    retryStrategy: (times) => Math.min(times * 50, 2000),
   });
 
-  log('info', 'internal_ws_started', { port: config.INTERNAL_WS_PORT });
+  redis.on('connect', () => log('info', 'redis_connected'));
+  redis.on('error', (err) => log('error', 'redis_error', { error: err.message }));
 
-  // Broadcast function
-  function broadcast(message: LBankTickerEvent | LBankDepthEvent): void {
-    const payload = JSON.stringify(message);
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(payload);
-      }
+  // Helper to publish to Redis Stream
+  async function publishTick(tick: MarketTick): Promise<void> {
+    try {
+      // XADD key * field value
+      await redis.xadd(TOPICS.MARKET_DATA, '*', 'data', JSON.stringify(tick));
+      // Optional: Publish to Pub/Sub for real-time UI (lighter weight)
+      await redis.publish(TOPICS.MARKET_DATA, JSON.stringify(tick));
+    } catch (err: any) {
+      log('error', 'publish_failed', { error: err.message });
     }
   }
 
-  // Create LBank client
+  // LBank Client
   const lbankClient = new LBankClient({
     wsUrl: config.LBANK_WS_URL,
     symbols,
     onLog: (level, event, data) => log(level as LogLevel, event, data),
   });
 
-  // Handle ticker events
-  lbankClient.on('ticker', (ticker: LBankTickerEvent) => {
-    broadcast(ticker);
+  // Handle Ticker
+  lbankClient.on('ticker', (event: LBankTickerEvent) => {
+    const tick: MarketTick = {
+      type: 'market.tick',
+      eventId: uuidv4(),
+      symbol: event.symbol.toUpperCase().replace('_', '/'), // csr_usdt -> CSR/USDT
+      venue: 'lbank',
+      ts: Date.now(),
+      bid: event.bid,
+      ask: event.ask,
+      last: event.last,
+      sourceTs: event.source_ts ? new Date(event.source_ts).getTime() : undefined,
+    };
+    publishTick(tick);
   });
 
-  // Handle depth events
+  // Handle Depth (Update bid/ask more accurately if needed)
   lbankClient.on('depth', (depth: LBankDepthEvent) => {
-    // Update ticker bid/ask from depth data (more accurate)
     if (depth.bids.length > 0 && depth.asks.length > 0) {
       const bestBid = depth.bids[0][0];
       const bestAsk = depth.asks[0][0];
-      
-      // Emit updated ticker with accurate bid/ask
-      const tickerFromDepth: LBankTickerEvent = {
-        type: 'lbank.ticker',
-        symbol: depth.symbol,
-        ts: depth.ts,
+
+      const tick: MarketTick = {
+        type: 'market.tick',
+        eventId: uuidv4(),
+        symbol: depth.symbol.toUpperCase().replace('_', '/'),
+        venue: 'lbank',
+        ts: Date.now(),
         bid: bestBid,
         ask: bestAsk,
-        last: (bestBid + bestAsk) / 2, // midpoint as proxy
-        source_ts: depth.source_ts,
+        last: (bestBid + bestAsk) / 2,
+        sourceTs: depth.source_ts ? new Date(depth.source_ts).getTime() : undefined,
       };
-      broadcast(tickerFromDepth);
+      publishTick(tick);
     }
-    broadcast(depth);
   });
 
-  // Handle errors
-  lbankClient.on('error', () => {
-    trackError();
-  });
-
-  // Handle max reconnect reached
-  lbankClient.on('max_reconnect_reached', () => {
-    log('error', 'max_reconnect_reached', { message: 'Will not retry further' });
-    // In production, might want to alert or exit here
-  });
-
-  // Connect to LBank
+  lbankClient.on('error', trackError);
   lbankClient.connect();
 
-  // Start health HTTP server
+  // Health Server (Keep mostly same for compatibility)
   const healthApp = createHealthServer(lbankClient, config, symbols, getErrorCount);
   healthApp.listen(config.HTTP_PORT, () => {
     log('info', 'health_server_started', { port: config.HTTP_PORT });
   });
 
   // Graceful shutdown
-  process.on('SIGTERM', () => {
-    log('info', 'sigterm_received', { message: 'Shutting down gracefully' });
+  const shutdown = async () => {
+    log('info', 'shutting_down');
     lbankClient.disconnect();
-    wss.close();
+    await redis.quit();
     process.exit(0);
-  });
+  };
 
-  process.on('SIGINT', () => {
-    log('info', 'sigint_received', { message: 'Shutting down gracefully' });
-    lbankClient.disconnect();
-    wss.close();
-    process.exit(0);
-  });
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 main().catch((err) => {
   log('error', 'startup_failed', { error: String(err) });
   process.exit(1);
 });
+

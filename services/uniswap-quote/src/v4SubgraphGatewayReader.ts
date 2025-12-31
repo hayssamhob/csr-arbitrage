@@ -51,14 +51,14 @@ export class V4SubgraphGatewayReader {
         }),
       });
 
-      const result = await response.json();
+      const result: any = await response.json();
 
       if (result.errors) {
         console.error("V4 subgraph query errors:", result.errors);
         return null;
       }
 
-      // Return first non-empty result
+      // Return first non-empty result from the original query structure
       const poolsA = result.data?.a || [];
       const poolsB = result.data?.b || [];
 

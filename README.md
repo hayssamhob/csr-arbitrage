@@ -7,24 +7,28 @@ A crypto market-monitoring and **dry-run arbitrage** system for CSR and CSR25 to
 ## Architecture Overview
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  LBank Gateway  │────▶│  Strategy Engine │◀────│  Uniswap Quote  │
-│   (WebSocket)   │     │   (Dry-Run)      │     │   (Read-Only)   │
-└────────┬────────┘     └────────┬─────────┘     └─────────────────┘
-         │                       │
-         │ Internal WS           │ HTTP /decision
-         │                       │
-         ▼                       ▼
-    Consumers              Logs / Dashboard
+│  LBank / Latoken  │────▶│  Strategy Engine │◀────│  Uniswap V4   │
+│     Gateway       │     │     (Dry-Run)    │     │ PoolManager   │
+│   (Redis Pub)     │     │    (Redis Sub)   │     │ (Flash Acct)  │
+└────────┬──────────┘     └────────┬─────────┘     └───────┬───────┘
+         │                         │                       │
+         │ Redis Streams           │ Redis Streams         │ On-Chain
+         │                         │                       │
+         ▼                         ▼                       ▼
+    Data Archiver           Execution Engine          Ethereum Mainnet
 ```
 
 ### Components
 
-1. **LBank Gateway** (`services/lbank-gateway`)
-   - Connects to LBank WebSocket market data
-   - Normalizes ticker/depth to internal schema
-   - Rebroadcasts via internal WebSocket
-   - Exposes `/health`, `/ready`, `/metrics` endpoints
+1.  **Market Data Gateways**
+    *   **LBank Gateway** (`services/lbank-gateway`): Connects to LBank WebSocket.
+    *   **Latoken Gateway** (`services/latoken-gateway`): Connects to Latoken WebSocket.
+    *   **Role**: Normalize ticker/depth data and publish `market.tick` events to **Redis Streams**.
+
+2.  **Uniswap V4 Gateway** (`services/uniswap-quote`)
+    *   Interacts with Uniswap V4 PoolManager singleton.
+    *   Uses `viem` for Flash Accounting checks and pricing.
+    *   Publishes ticks to Redis.
 
 2. **Uniswap Quote Service** (`services/uniswap-quote`)
    - Read-only quoting via AlphaRouter

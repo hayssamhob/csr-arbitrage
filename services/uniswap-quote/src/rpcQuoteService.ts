@@ -61,7 +61,7 @@ export class RpcQuoteService {
   constructor(rpcUrl: string, onLog: LogFn) {
     this.provider = new ethers.providers.JsonRpcProvider(rpcUrl);
     this.onLog = onLog;
-    
+
     // Fetch ETH price periodically
     this.updateEthPrice();
     setInterval(() => this.updateEthPrice(), 60000);
@@ -72,7 +72,7 @@ export class RpcQuoteService {
       const response = await fetch(
         "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
       );
-      const data = await response.json();
+      const data: any = await response.json();
       if (data.ethereum?.usd) {
         this.ethPriceUsd = data.ethereum.usd;
         this.onLog("debug", "eth_price_updated", { price: this.ethPriceUsd });
@@ -90,7 +90,7 @@ export class RpcQuoteService {
     sizes: number[] = [50, 100, 250, 500, 1000]
   ): Promise<MultiSizeQuote> {
     const quotes: QuoteResult[] = [];
-    
+
     for (const size of sizes) {
       const quote = await this.getQuote(token, size);
       quotes.push(quote);
@@ -112,9 +112,9 @@ export class RpcQuoteService {
     slippageBps: number = 50
   ): Promise<QuoteResult> {
     const tokenAddress = token === "CSR" ? CSR_ADDRESS : CSR25_ADDRESS;
-    
+
     // Try different quoting methods in order of preference
-    
+
     // 1. Try V3 QuoterV2 with different fee tiers
     const v3Quote = await this.tryV3Quote(tokenAddress, amountUsdt, slippageBps);
     if (v3Quote && !v3Quote.error) {
@@ -169,14 +169,15 @@ export class RpcQuoteService {
     try {
       const scraperUrl = process.env.SCRAPER_URL || "http://localhost:3010";
       const response = await fetch(`${scraperUrl}/price/${token}`);
-      
+
       if (!response.ok) {
         return null;
       }
 
-      const data = await response.json();
-      
-      if (data.isStale || data.error || data.price <= 0) {
+      const data: any = await response.json();
+
+      const price = parseFloat(data.price);
+      if (isNaN(price) || price <= 0) {
         this.onLog("warn", "scraper_data_stale", { token, data });
         return null;
       }
@@ -501,7 +502,7 @@ export class RpcQuoteService {
   async getTokenPrice(token: "CSR" | "CSR25"): Promise<QuoteResult> {
     // To get price of 1 token, we need to quote selling 1 token for USDT
     const tokenAddress = token === "CSR" ? CSR_ADDRESS : CSR25_ADDRESS;
-    
+
     // Try V3 first
     const v3Price = await this.tryV3SellQuote(tokenAddress, 1);
     if (v3Price && !v3Price.error) {

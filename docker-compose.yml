@@ -1,123 +1,123 @@
 version: '3.8'
 
 services:
-  # LBank Gateway
+  # ---------------------------------------------------------------------------
+  # Infrastructure Services
+  # ---------------------------------------------------------------------------
+
+  # Message Bus (Redis Streams)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379" # Bind to localhost only
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  # Timeseries Database (TimescaleDB)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    ports:
+      - "127.0.0.1:5432:5432" # Bind to localhost only
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=trading_bot
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    restart: always
+
+  # UI / Visualization (Optional, useful for debugging DB)
+  pgadmin:
+    image: dpage/pgadmin4
+    ports:
+      - "127.0.0.1:5050:80" # Bind to localhost only
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@admin.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+    depends_on:
+      - timescaledb
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Application Services
+  # ---------------------------------------------------------------------------
+
+  # Market Data Gateway (LBank -> Redis)
   lbank-gateway:
-    build: ./services/lbank-gateway
-    ports:
-      - "3001:3001"
-      - "8080:8080"
+    build:
+      context: .
+      dockerfile: ./services/lbank-gateway/Dockerfile
     environment:
-      - SYMBOLS=csr25_usdt
-      - POLL_INTERVAL_MS=2000
-      - MAX_STALENESS_SECONDS=15
-      - LOG_LEVEL=info
-    restart: unless-stopped
-
-  # LATOKEN Gateway  
-  latoken-gateway:
-    build: ./services/latoken-gateway
-    ports:
-      - "3006:3006"
-      - "8081:8081"
-    environment:
-      - SYMBOLS=csr_usdt
-      - POLL_INTERVAL_MS=2000
-      - MAX_STALENESS_SECONDS=15
-      - LOG_LEVEL=info
-      - MOCK_MODE=false
-    restart: unless-stopped
-
-  # Uniswap Quote CSR25
-  uniswap-quote-csr25:
-    build: ./services/uniswap-quote
-    ports:
-      - "3002:3002"
-    environment:
-      - TOKEN_ADDRESS=0x46afcc847653fa391320b2bde548c59cf384b029933667c541fb730c5641778e
-      - SYMBOL=CSR25
-      - LOG_LEVEL=info
-    restart: unless-stopped
-
-  # Uniswap Quote CSR
-  uniswap-quote-csr:
-    build: ./services/uniswap-quote
-    ports:
-      - "3005:3005"
-    environment:
-      - TOKEN_ADDRESS=0x6c76bb9f364e72fcb57819d2920550768cf43e09e819daa40fabe9c7ab057f9e
-      - SYMBOL=CSR
-      - LOG_LEVEL=info
-    restart: unless-stopped
-
-  # Strategy Engine
-  strategy:
-    build: ./services/strategy
-    ports:
-      - "3003:3003"
-    environment:
-      - EXECUTION_MODE=off
-      - LBANK_GATEWAY_WS_URL=ws://lbank-gateway:8080
-      - LATOKEN_GATEWAY_WS_URL=ws://latoken-gateway:8081
-      - UNISWAP_QUOTE_URL=http://uniswap-quote-csr25:3002
-      - UNISWAP_QUOTE_CSR_URL=http://uniswap-quote-csr:3005
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SYMBOLS=csr_usdt,csr25_usdt
-      - MIN_EDGE_BPS=50
-      - LOG_LEVEL=info
-    depends_on:
-      - lbank-gateway
-      - latoken-gateway
-      - uniswap-quote-csr25
-      - uniswap-quote-csr
-    restart: unless-stopped
-
-  # Backend API
-  backend:
-    build: ./backend
+      - HTTP_PORT=3001
     ports:
-      - "8001:8001"
-    environment:
-      - LBANK_GATEWAY_URL=http://lbank-gateway:3001
-      - LATOKEN_GATEWAY_URL=http://latoken-gateway:3006
-      - UNISWAP_QUOTE_URL=http://uniswap-quote-csr25:3002
-      - UNISWAP_QUOTE_CSR_URL=http://uniswap-quote-csr:3005
-      - STRATEGY_ENGINE_URL=http://strategy:3003
+      - "127.0.0.1:3001:3001"
     depends_on:
-      - lbank-gateway
-      - latoken-gateway
-      - strategy
-    restart: unless-stopped
+      redis:
+        condition: service_healthy
+    restart: always
 
-  # Uniswap UI Scraper (Puppeteer-based V4 price ingestion)
-  uniswap-scraper:
-    build: ./services/uniswap-scraper
-    ports:
-      - "3010:3010"
-      - "3011:3011"
+  # Market Data Gateway (Latoken -> Redis)
+  latoken-gateway:
+    build:
+      context: .
+      dockerfile: ./services/latoken-gateway/Dockerfile
     environment:
-      - SCRAPE_INTERVAL_MS=10000
-      - QUOTE_SIZES_USDT=10,25,50,100,250,500,1000
-      - MAX_STALENESS_SECONDS=20
-      - UNISWAP_TIMEOUT_MS=8000
-      - HEADLESS=true
-      - BLOCK_RESOURCES=true
-      - CONSENT_AUTO_ACCEPT=true
-      - SCRAPER_HTTP_PORT=3010
-      - SCRAPER_WS_PORT=3011
-    deploy:
-      resources:
-        limits:
-          memory: 1024M
-    restart: unless-stopped
-    shm_size: '256mb'
-
-  # Frontend
-  frontend:
-    build: ./frontend
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - SYMBOLS=CSR/USDT
+      - HTTP_PORT=3003
     ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8001
+      - "127.0.0.1:3006:3003"
     depends_on:
-      - backend
-    restart: unless-stopped
+      redis:
+        condition: service_healthy
+    restart: always
+
+  # Uniswap V4 Gateway (Redis <-> V4 PoolManager)
+  uniswap-v4-gateway:
+    build:
+      context: .
+      dockerfile: ./services/uniswap-quote/Dockerfile
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - RPC_URL=${RPC_URL}
+      - HTTP_PORT=3002
+    ports:
+      - "127.0.0.1:3002:3002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+
+  # Strategy Engine (Redis -> Logic -> Redis)
+  strategy:
+    build:
+      context: .
+      dockerfile: ./services/strategy/Dockerfile
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - EXECUTION_MODE=dry-run
+      - HTTP_PORT=3005
+    ports:
+      - "127.0.0.1:3003:3005"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  redis_data:
+  timescaledb_data:

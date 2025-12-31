@@ -23,6 +23,7 @@ interface PoolData {
   token0Price: string;
   token1Price: string;
   feeTier: string;
+  fee: number; // Added to match broader interface if needed
 }
 
 export class V4SubgraphReader {
@@ -34,7 +35,7 @@ export class V4SubgraphReader {
     token1: string;
   }> {
     try {
-      // GraphQL query to fetch pool data
+      // GraphQL query
       const query = `
         query getPool($poolId: ID!) {
           pool(id: $poolId) {
@@ -69,9 +70,9 @@ export class V4SubgraphReader {
         }),
       });
 
-      const result = await response.json();
+      const result: any = await response.json();
 
-      if (result.errors || !result.data.pool) {
+      if (result.errors || !result.data || !result.data.pool) {
         console.error('Subgraph query failed:', result.errors);
         return {
           price: 0,

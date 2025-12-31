@@ -70,6 +70,9 @@ const ConfigSchema = z.object({
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid contract address"),
 
+  // Redis URL for Event Bus
+  REDIS_URL: z.string().default("redis://localhost:6379"),
+
   // Log level
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -96,6 +99,7 @@ export function loadConfig(): Config {
     CSR_POOL_ID: process.env.CSR_POOL_ID,
     CSR25_POOL_ID: process.env.CSR25_POOL_ID,
     UNISWAP_V4_MANAGER_ADDRESS: process.env.UNISWAP_V4_MANAGER_ADDRESS,
+    REDIS_URL: process.env.REDIS_URL,
     LOG_LEVEL: process.env.LOG_LEVEL,
   };
 

@@ -19,6 +19,9 @@ const ConfigSchema = z.object({
   // Staleness threshold in seconds
   MAX_STALENESS_SECONDS: z.coerce.number().positive().default(10),
 
+  // Redis URL for Event Bus
+  REDIS_URL: z.string().default("redis://localhost:6379"),
+
   // Log level
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -32,11 +35,12 @@ export function loadConfig(): Config {
     INTERNAL_WS_PORT: process.env.INTERNAL_WS_PORT,
     HTTP_PORT: process.env.HTTP_PORT,
     MAX_STALENESS_SECONDS: process.env.MAX_STALENESS_SECONDS,
+    REDIS_URL: process.env.REDIS_URL,
     LOG_LEVEL: process.env.LOG_LEVEL,
   };
 
   const result = ConfigSchema.safeParse(rawConfig);
-  
+
   if (!result.success) {
     console.error('Configuration validation failed:');
     console.error(result.error.format());

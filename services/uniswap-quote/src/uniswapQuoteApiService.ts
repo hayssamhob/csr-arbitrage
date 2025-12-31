@@ -57,7 +57,7 @@ export class UniswapQuoteApiService {
     this.rpcUrl = rpcUrl;
     this.onLog = onLog;
     this.provider = new ethers.providers.JsonRpcProvider(rpcUrl);
-    
+
     // Update ETH price periodically
     this.updateEthPrice();
     setInterval(() => this.updateEthPrice(), 60000); // Every minute
@@ -69,7 +69,7 @@ export class UniswapQuoteApiService {
         "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
       );
       if (response.ok) {
-        const data = await response.json();
+        const data: any = await response.json();
         this.ethPriceUsd = data.ethereum?.usd || 3500;
       }
     } catch {
@@ -163,8 +163,8 @@ export class UniswapQuoteApiService {
         return null;
       }
 
-      const data = await response.json();
-      
+      const data: any = await response.json();
+
       if (data.quote) {
         return {
           amountIn: data.quote.amountIn || amount,
@@ -195,7 +195,7 @@ export class UniswapQuoteApiService {
   ): Promise<QuoteResult> {
     // Quoter V2 contract address (Uniswap V3)
     const QUOTER_V2 = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
-    
+
     const tokenAddress = tokenSymbol === "CSR" ? this.CSR_ADDRESS : this.CSR25_ADDRESS;
     const tokenDecimals = 18;
     const usdtDecimals = 6;
@@ -216,7 +216,7 @@ export class UniswapQuoteApiService {
 
     // Try different fee tiers
     const feeTiers = [3000, 10000, 500, 100]; // 0.3%, 1%, 0.05%, 0.01%
-    
+
     for (const fee of feeTiers) {
       try {
         const params = {
@@ -232,7 +232,7 @@ export class UniswapQuoteApiService {
         const gasEstimate = result.gasEstimate || result[3] || 150000;
 
         const amountOutFormatted = ethers.utils.formatUnits(amountOut, decimalsOut);
-        
+
         // Calculate effective price
         let effectivePrice: number;
         if (direction === "buy") {
@@ -334,7 +334,7 @@ export class UniswapQuoteApiService {
   ): QuoteResult {
     // Use cached/estimated price as fallback
     const estimatedPrice = tokenSymbol === "CSR" ? 0.003 : 0.044;
-    const amountOut = direction === "buy" 
+    const amountOut = direction === "buy"
       ? (amountUsdt / estimatedPrice).toFixed(6)
       : (amountUsdt * estimatedPrice).toFixed(6);
 

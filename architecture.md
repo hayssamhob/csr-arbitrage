@@ -3,6 +3,7 @@
 ## Goal
 Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence between:
 - LBank (CEX) orderbook/ticker
+- LaToken (CEX) orderbook/ticker
 - Uniswap (DEX) effective quote price
 
 …and support a future upgrade to inventory arbitrage execution.
@@ -18,11 +19,12 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 ## System Overview
 
 ### Components
-1) **Market Data Gateway (Node/TS)**
-   - Connects to LBank WebSocket market data
-   - Normalizes to a simple internal schema
-   - Rebroadcasts via our own WebSocket to consumers (dashboard, strategy)
-   - Exposes HTTP health endpoints: `/health`, `/ready`, `/metrics` (optional)
+1) **Market Data Gateways (Node/TS)**
+   - **LBank Gateway**: Connects to LBank WebSocket.
+   - **Latoken Gateway**: Connects to Latoken WebSocket.
+   - **Role**: Normalize to standard `MarketTick` schema and publish to **Redis Streams**.
+   - **Tech**: `ioredis`, `ws` (or protocol specific lib).
+   - **Health**: Exposes HTTP health endpoints for Docker `healthcheck`.
 
 2) **Uniswap Quote Service (Node/TS)**
    - Read-only module that returns effective execution prices for given sizes

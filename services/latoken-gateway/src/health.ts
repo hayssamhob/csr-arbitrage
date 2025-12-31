@@ -21,15 +21,16 @@ interface HealthState {
 export function createHealthServer(
   client: LatokenClient,
   config: Config,
-  symbols: string[]
+  symbols: string[],
+  getErrorCount?: () => number
 ): Express {
   const app = express();
 
   app.get('/health', (_req: Request, res: Response) => {
-    res.json({ 
-      status: 'ok', 
-      service: 'latoken-gateway', 
-      ts: new Date().toISOString() 
+    res.json({
+      status: 'ok',
+      service: 'latoken-gateway',
+      ts: new Date().toISOString()
     });
   });
 

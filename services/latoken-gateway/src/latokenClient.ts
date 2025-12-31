@@ -22,7 +22,7 @@ interface PairInfo {
 }
 
 export class LatokenClient extends EventEmitter {
-  private readonly exchange: ccxt.latoken;
+  private readonly exchange: any; // ccxt type can be problematic in build, using any
   private readonly symbols: string[];
   private readonly pollIntervalMs: number;
   private readonly onLog: LatokenClientOptions["onLog"];
@@ -171,9 +171,8 @@ export class LatokenClient extends EventEmitter {
       this.onLog("error", "pair_discovery_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-      this.initError = `Pair discovery failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
+      this.initError = `Pair discovery failed: ${error instanceof Error ? error.message : String(error)
+        }`;
     }
   }
 

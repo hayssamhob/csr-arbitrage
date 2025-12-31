@@ -1,15 +1,17 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import WebSocket, { WebSocketServer } from 'ws';
-import { getSymbolsList, loadConfig } from "./config";
+import Redis from 'ioredis';
+import { v4 as uuidv4 } from 'uuid';
+import { getSymbolsList, loadConfig } from './config';
 import { createHealthServer } from './health';
 import { LatokenClient } from './latokenClient';
-import { LatokenTickerEvent } from './schemas';
+// Relative import to shared package
+import { MarketTick, TOPICS } from '../../../packages/shared/src';
 
 // ============================================================================
-// LATOKEN Gateway Service
-// REST polling via CCXT, normalizes data, broadcasts via internal WS
+// Latoken Gateway Service (Redis Stream Edition)
+// Connects to Latoken WebSocket, normalizes data, publishes to Redis 'market.data'
 // ============================================================================
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -18,95 +20,106 @@ const LOG_LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error
 function log(level: LogLevel, event: string, data?: Record<string, unknown>): void {
   const minLevel = (process.env.LOG_LEVEL || 'info') as LogLevel;
   if (LOG_LEVELS[level] < LOG_LEVELS[minLevel]) return;
-  
-  const entry = {
-    level,
-    service: 'latoken-gateway',
-    event,
-    ts: new Date().toISOString(),
-    ...data,
-  };
-  console.log(JSON.stringify(entry));
+  console.log(JSON.stringify({ level, service: 'latoken-gateway', event, ts: new Date().toISOString(), ...data }));
+}
+
+let errorCount = 0;
+const errorWindow: number[] = [];
+const ERROR_WINDOW_MS = 5 * 60 * 1000;
+
+function trackError(): void {
+  const now = Date.now();
+  errorWindow.push(now);
+  while (errorWindow.length > 0 && errorWindow[0] < now - ERROR_WINDOW_MS) {
+    errorWindow.shift();
+  }
+  errorCount = errorWindow.length;
+}
+
+function getErrorCount(): number {
+  return errorCount;
 }
 
 async function main(): Promise<void> {
-  log('info', 'starting', { version: '1.1.0' });
+  log('info', 'starting', { version: '2.0.0-redis' });
 
   const config = loadConfig();
-  const symbols = getSymbolsList(config);
-  
+  const symbols = getSymbolsList(config); // e.g., ["CSR/USDT"]
+
   log('info', 'config_loaded', {
+    wsUrl: config.LATOKEN_WS_URL,
     symbols,
-    httpPort: config.HTTP_PORT,
-    wsPort: config.INTERNAL_WS_PORT,
-    pollIntervalMs: config.POLL_INTERVAL_MS,
+    redisUrl: config.REDIS_URL,
   });
 
-  // Create internal WebSocket server
-  const wss = new WebSocketServer({ port: config.INTERNAL_WS_PORT });
-  const clients = new Set<WebSocket>();
-
-  wss.on('connection', (ws) => {
-    log('info', 'client_connected', { totalClients: clients.size + 1 });
-    clients.add(ws);
-    ws.on('close', () => {
-      clients.delete(ws);
-      log('info', 'client_disconnected', { totalClients: clients.size });
-    });
+  // Redis
+  const redis = new Redis(config.REDIS_URL, {
+    retryStrategy: (times) => Math.min(times * 50, 2000),
   });
+  redis.on('connect', () => log('info', 'redis_connected'));
+  redis.on('error', (err) => log('error', 'redis_error', { error: err.message }));
 
-  log('info', 'internal_ws_started', { port: config.INTERNAL_WS_PORT });
-
-  function broadcast(message: LatokenTickerEvent): void {
-    const payload = JSON.stringify(message);
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(payload);
-      }
+  async function publishTick(tick: MarketTick): Promise<void> {
+    try {
+      await redis.xadd(TOPICS.MARKET_DATA, '*', 'data', JSON.stringify(tick));
+      await redis.publish(TOPICS.MARKET_DATA, JSON.stringify(tick));
+    } catch (err: any) {
+      log('error', 'publish_failed', { error: err.message });
     }
   }
 
-  // Create LATOKEN client with CCXT
-  const latokenClient = new LatokenClient({
-    apiKey: config.LATOKEN_API_KEY,
-    apiSecret: config.LATOKEN_API_SECRET,
+  // Latoken Client (REST Polling underneath)
+  const client = new LatokenClient({
+    apiKey: process.env.LATOKEN_API_KEY,    // Optional
+    apiSecret: process.env.LATOKEN_API_SECRET, // Optional
     symbols,
     pollIntervalMs: config.POLL_INTERVAL_MS,
-    config: {
-      MOCK_MODE: config.MOCK_MODE,
-      MOCK_BID: config.MOCK_BID,
-      MOCK_ASK: config.MOCK_ASK,
-      MOCK_LAST: config.MOCK_LAST,
-    },
     onLog: (level, event, data) => log(level as LogLevel, event, data),
+    config: {
+      MOCK_MODE: false, // Can be exposed in config if needed
+      MOCK_BID: 0,
+      MOCK_ASK: 0,
+      MOCK_LAST: 0
+    }
   });
 
-  latokenClient.on('ticker', (ticker: LatokenTickerEvent) => {
-    broadcast(ticker);
+  // Event Handlers
+  client.on('ticker', (event: any) => {
+    // event is already normalized by LatokenClient but might need check
+    const tick: MarketTick = {
+      type: 'market.tick',
+      eventId: uuidv4(),
+      symbol: event.symbol.toUpperCase(),
+      venue: 'latoken',
+      ts: Date.now(),
+      bid: event.bid,
+      ask: event.ask,
+      last: event.last,
+      sourceTs: event.source_ts ? new Date(event.source_ts).getTime() : undefined
+    };
+    publishTick(tick);
   });
 
-  // Start client (async)
-  await latokenClient.start();
+  client.on('error', () => trackError());
 
-  // Start health HTTP server
-  const healthApp = createHealthServer(latokenClient, config, symbols);
+  // Start polling
+  await client.start();
+
+  // Health
+  const healthApp = createHealthServer(client, config, symbols, getErrorCount);
   healthApp.listen(config.HTTP_PORT, () => {
     log('info', 'health_server_started', { port: config.HTTP_PORT });
   });
 
-  process.on('SIGTERM', () => {
-    log('info', 'sigterm_received');
-    latokenClient.stop();
-    wss.close();
+  // Shutdown
+  const shutdown = async () => {
+    log('info', 'shutting_down');
+    client.stop();
+    await redis.quit();
     process.exit(0);
-  });
-
-  process.on('SIGINT', () => {
-    log('info', 'sigint_received');
-    latokenClient.stop();
-    wss.close();
-    process.exit(0);
-  });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 main().catch((err) => {

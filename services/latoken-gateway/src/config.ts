@@ -2,37 +2,31 @@ import { z } from 'zod';
 
 // ============================================================================
 // LATOKEN Gateway Configuration
-// API keys optional for public market data
 // ============================================================================
 
 const ConfigSchema = z.object({
-  // LATOKEN API (optional for public endpoints)
-  LATOKEN_API_KEY: z.string().optional().default(""),
-  LATOKEN_API_SECRET: z.string().optional().default(""),
+  // Latoken WebSocket URL
+  LATOKEN_WS_URL: z.string().url().default("wss://api.latoken.com/v2/ws"),
 
-  // Service ports
+  // Symbols to subscribe (comma-separated, e.g., "CSR/USDT")
+  SYMBOLS: z.string().default("CSR/USDT"),
+
+  // Internal WebSocket port (optional legacy support)
   INTERNAL_WS_PORT: z.coerce.number().int().positive().default(8081),
-  HTTP_PORT: z.coerce.number().int().positive().default(3006),
 
-  // Polling settings
+  // HTTP port for health endpoints
+  HTTP_PORT: z.coerce.number().int().positive().default(3003),
+
+  // Redis URL for Event Bus
+  REDIS_URL: z.string().default("redis://localhost:6379"),
+
+  // Poll interval for REST fallback
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
-  MAX_STALENESS_SECONDS: z.coerce.number().int().positive().default(15),
 
-  // Symbols (internal format: csr_usdt)
-  SYMBOLS: z.string().transform((val) =>
-    val
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  ),
+  // Staleness threshold (seconds)
+  MAX_STALENESS_SECONDS: z.coerce.number().positive().default(30),
 
-  // Mock mode for testing when API is blocked
-  MOCK_MODE: z.coerce.boolean().default(false),
-  MOCK_BID: z.coerce.number().default(0.85),
-  MOCK_ASK: z.coerce.number().default(0.86),
-  MOCK_LAST: z.coerce.number().default(0.855),
-
-  // Logging
+  // Log level
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
@@ -40,23 +34,27 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(): Config {
   const rawConfig = {
-    LATOKEN_API_KEY: process.env.LATOKEN_API_KEY,
-    LATOKEN_API_SECRET: process.env.LATOKEN_API_SECRET,
+    LATOKEN_WS_URL: process.env.LATOKEN_WS_URL,
+    SYMBOLS: process.env.SYMBOLS,
     INTERNAL_WS_PORT: process.env.INTERNAL_WS_PORT,
     HTTP_PORT: process.env.HTTP_PORT,
+    REDIS_URL: process.env.REDIS_URL,
     POLL_INTERVAL_MS: process.env.POLL_INTERVAL_MS,
     MAX_STALENESS_SECONDS: process.env.MAX_STALENESS_SECONDS,
-    SYMBOLS: process.env.SYMBOLS || "csr_usdt",
-    MOCK_MODE: process.env.MOCK_MODE,
-    MOCK_BID: process.env.MOCK_BID,
-    MOCK_ASK: process.env.MOCK_ASK,
-    MOCK_LAST: process.env.MOCK_LAST,
     LOG_LEVEL: process.env.LOG_LEVEL,
   };
 
-  return ConfigSchema.parse(rawConfig);
+  const result = ConfigSchema.safeParse(rawConfig);
+
+  if (!result.success) {
+    console.error('Configuration validation failed:');
+    console.error(result.error.format());
+    process.exit(1);
+  }
+
+  return result.data;
 }
 
 export function getSymbolsList(config: Config): string[] {
-  return config.SYMBOLS;
+  return config.SYMBOLS.split(',').map(s => s.trim().toUpperCase());
 }

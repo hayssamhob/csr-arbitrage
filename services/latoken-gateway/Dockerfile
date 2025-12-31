@@ -2,12 +2,25 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm install --omit=dev && npm install -g typescript
+# Copy shared modules first (for caching)
+COPY packages/shared/package.json ./packages/shared/
+COPY services/latoken-gateway/package.json ./services/latoken-gateway/
 
-COPY . .
+# Install dependencies
+WORKDIR /app/packages/shared
+RUN npm install
+WORKDIR /app/services/latoken-gateway
+RUN npm install --omit=dev && npm install -g typescript && npm install --save-dev @types/node
+
+# Copy source code
+COPY packages/shared /app/packages/shared
+COPY services/latoken-gateway /app/services/latoken-gateway
+
+# Build
+WORKDIR /app/services/latoken-gateway
 RUN npm run build
 
-EXPOSE 3006 8081
+EXPOSE 3003 8081
 
-CMD ["npm", "start"]
+# Output will be in dist/services/latoken-gateway/src/index.js due to rootDir adjustment
+CMD ["node", "dist/services/latoken-gateway/src/index.js"]

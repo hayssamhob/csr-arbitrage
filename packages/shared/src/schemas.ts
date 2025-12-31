@@ -1,133 +1,87 @@
 import { z } from 'zod';
 
 // ============================================================================
-// LBank Ticker Event Schema (Internal normalized format)
-// Per architecture.md: includes bid, ask, last, timestamps
+// Event Bus Topic Names
 // ============================================================================
-export const LBankTickerEventSchema = z.object({
-  type: z.literal('lbank.ticker'),
-  symbol: z.string(), // e.g., "csr_usdt"
-  ts: z.string(), // ISO 8601 timestamp (our receive time)
-  bid: z.number(),
-  ask: z.number(),
-  last: z.number(),
-  volume_24h: z.number().optional(),
-  source_ts: z.string().optional(), // Original timestamp from LBank
+export const TOPICS = {
+  MARKET_DATA: 'market.data',
+  STRATEGY_DECISIONS: 'strategy.decisions',
+  EXECUTION_REQUESTS: 'execution.requests',
+  SYSTEM_EVENTS: 'system.events',
+} as const;
+
+// ============================================================================
+// 1. Market Data Events (The Source of Truth)
+// ============================================================================
+
+export const MarketTickSchema = z.object({
+  type: z.literal('market.tick'),
+  eventId: z.string(), // UUID v4
+  symbol: z.string(), // Normalized "CSR/USDT"
+  venue: z.string(), // "lbank" | "uniswap_v3" | "uniswap_v4"
+  ts: z.number(), // Unix timestamp (ms)
+  bid: z.number().optional(),
+  ask: z.number().optional(),
+  last: z.number().optional(),
+  price: z.number().optional(), // For DEX quotes
+  volume: z.number().optional(),
+  sourceTs: z.number().optional(), // Exchange timestamp
+  meta: z.record(z.unknown()).optional(), // Any venue specific metadata
 });
 
-export type LBankTickerEvent = z.infer<typeof LBankTickerEventSchema>;
+export type MarketTick = z.infer<typeof MarketTickSchema>;
 
 // ============================================================================
-// LBank Depth Event Schema (Internal normalized format)
+// 2. Strategy Signals (The Brain)
 // ============================================================================
-export const LBankDepthEventSchema = z.object({
-  type: z.literal('lbank.depth'),
-  symbol: z.string(),
-  ts: z.string(),
-  bids: z.array(z.tuple([z.number(), z.number()])), // [price, quantity][]
-  asks: z.array(z.tuple([z.number(), z.number()])), // [price, quantity][]
-  source_ts: z.string().optional(),
+
+export const TradeDirectionSchema = z.enum(['BUY_CEX_SELL_DEX', 'BUY_DEX_SELL_CEX']);
+
+export const StrategySignalSchema = z.object({
+  type: z.literal('strategy.signal'),
+  signalId: z.string(), // UUID v4
+  ts: z.number(),
+  tokenIn: z.string(),
+  tokenOut: z.string(),
+  direction: TradeDirectionSchema,
+  
+  // Pricing at signal time
+  cexPrice: z.number(),
+  dexPrice: z.number(),
+  estimatedEdgeBps: z.number(),
+  
+  // Execution params
+  sizeAmount: z.string(), // BigInt string
+  minAcceptableEdgeBps: z.number(),
 });
 
-export type LBankDepthEvent = z.infer<typeof LBankDepthEventSchema>;
+export type StrategySignal = z.infer<typeof StrategySignalSchema>;
 
 // ============================================================================
-// Uniswap Quote Result Schema
-// Per architecture.md: effective_price_usdt, estimated_gas, route
+// 3. Execution Events (The Action)
 // ============================================================================
-export const UniswapQuoteResultSchema = z.object({
-  type: z.literal('uniswap.quote'),
-  pair: z.string(), // e.g., "CSR/USDT"
-  chain_id: z.number(),
-  ts: z.string(),
-  amount_in: z.string(),
-  amount_in_unit: z.string(),
-  amount_out: z.string(),
-  amount_out_unit: z.string(),
-  effective_price_usdt: z.number(),
-  estimated_gas: z.number(),
-  route: z.object({
-    summary: z.string(),
-  }).optional(),
-  is_stale: z.boolean().optional(),
+
+export const ExecutionRequestSchema = z.object({
+  type: z.literal('execution.request'),
+  requestId: z.string(),
+  signalId: z.string(), // Link back to signal
+  strategy: z.string(), // Name of strategy requesting
+  
+  // V4 specific checks
+  flashAccountingRequired: z.boolean().default(true),
+  deadline: z.number().optional(),
 });
 
-export type UniswapQuoteResult = z.infer<typeof UniswapQuoteResultSchema>;
+export type ExecutionRequest = z.infer<typeof ExecutionRequestSchema>;
 
 // ============================================================================
-// Strategy Decision Event Schema (DRY-RUN ONLY)
+// Universal Bus Message
 // ============================================================================
-export const StrategyDecisionSchema = z.object({
-  type: z.literal('strategy.decision'),
-  ts: z.string(),
-  symbol: z.string(),
-  lbank_bid: z.number(),
-  lbank_ask: z.number(),
-  uniswap_price: z.number(),
-  raw_spread_bps: z.number(), // Basis points
-  estimated_cost_bps: z.number(), // LP fee + gas + buffer
-  edge_after_costs_bps: z.number(),
-  would_trade: z.boolean(),
-  direction: z.enum(['buy_cex_sell_dex', 'buy_dex_sell_cex', 'none']),
-  suggested_size_usdt: z.number(),
-  reason: z.string(),
-});
-
-export type StrategyDecision = z.infer<typeof StrategyDecisionSchema>;
-
-// ============================================================================
-// Health Status Schema
-// Per architecture.md: last_message_ts, reconnect_count, errors_last_5m
-// ============================================================================
-export const HealthStatusSchema = z.object({
-  service: z.string(),
-  status: z.enum(['healthy', 'degraded', 'unhealthy']),
-  ts: z.string(),
-  last_message_ts: z.string().nullable(),
-  reconnect_count: z.number(),
-  errors_last_5m: z.number(),
-  details: z.record(z.unknown()).optional(),
-});
-
-export type HealthStatus = z.infer<typeof HealthStatusSchema>;
-
-// ============================================================================
-// WebSocket Message Wrapper (for internal broadcast)
-// ============================================================================
-export const WsMessageSchema = z.discriminatedUnion('type', [
-  LBankTickerEventSchema,
-  LBankDepthEventSchema,
-  UniswapQuoteResultSchema,
-  StrategyDecisionSchema,
+export const BusMessageSchema = z.discriminatedUnion('type', [
+  MarketTickSchema,
+  StrategySignalSchema,
+  ExecutionRequestSchema,
 ]);
 
-export type WsMessage = z.infer<typeof WsMessageSchema>;
+export type BusMessage = z.infer<typeof BusMessageSchema>;
 
-// ============================================================================
-// Raw LBank WebSocket Message Schemas (for validation)
-// ASSUMPTION: Based on LBank docs, ticker format uses 'tick' wrapper
-// Marked as experimental - validate against live messages
-// ============================================================================
-export const RawLBankTickerSchema = z.object({
-  tick: z.object({
-    latest: z.string(),
-    high: z.string(),
-    low: z.string(),
-    vol: z.string(),
-    change: z.string(),
-    turnover: z.string().optional(),
-  }).optional(),
-  pair: z.string().optional(),
-  TS: z.string().optional(),
-  type: z.string().optional(),
-});
-
-export const RawLBankDepthSchema = z.object({
-  depth: z.object({
-    bids: z.array(z.tuple([z.string(), z.string()])),
-    asks: z.array(z.tuple([z.string(), z.string()])),
-  }).optional(),
-  pair: z.string().optional(),
-  TS: z.string().optional(),
-  type: z.string().optional(),
-});
