@@ -14,6 +14,7 @@ import * as http from 'http';
 import process from "process";
 import { WebSocket, WebSocketServer } from "ws";
 import userRoutes from "./routes/user";
+import { RedisConsumer } from "./redisConsumer";
 
 // Use require for ethers to avoid TS module resolution issues
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -21,6 +22,7 @@ const ethers = require("ethers");
 
 // Configuration
 const PORT = parseInt(process.env.PORT || "8001");
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const LBANK_GATEWAY_URL =
   process.env.LBANK_GATEWAY_URL || "http://localhost:3001";
 const LATOKEN_GATEWAY_URL =
@@ -174,7 +176,7 @@ async function persistPriceSnapshot(market: string, point: PricePoint) {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) return;
-    
+
     const response = await axios.post(
       `${supabaseUrl}/rest/v1/price_snapshots`,
       {
@@ -548,16 +550,16 @@ app.get("/api/state", (req, res) => {
         freshness: {
           lbank_age_ms: dashboardData.market_state?.csr_usdt?.lbank_ticker?.ts
             ? Date.now() -
-              new Date(
-                dashboardData.market_state.csr_usdt.lbank_ticker.ts
-              ).getTime()
+            new Date(
+              dashboardData.market_state.csr_usdt.lbank_ticker.ts
+            ).getTime()
             : null,
           uniswap_age_ms: dashboardData.market_state?.csr_usdt?.uniswap_quote
             ?.ts
             ? Date.now() -
-              new Date(
-                dashboardData.market_state.csr_usdt.uniswap_quote.ts
-              ).getTime()
+            new Date(
+              dashboardData.market_state.csr_usdt.uniswap_quote.ts
+            ).getTime()
             : null,
         },
       },
@@ -568,16 +570,16 @@ app.get("/api/state", (req, res) => {
         freshness: {
           lbank_age_ms: dashboardData.market_state?.csr25_usdt?.lbank_ticker?.ts
             ? Date.now() -
-              new Date(
-                dashboardData.market_state.csr25_usdt.lbank_ticker.ts
-              ).getTime()
+            new Date(
+              dashboardData.market_state.csr25_usdt.lbank_ticker.ts
+            ).getTime()
             : null,
           uniswap_age_ms: dashboardData.market_state?.csr25_usdt?.uniswap_quote
             ?.ts
             ? Date.now() -
-              new Date(
-                dashboardData.market_state.csr25_usdt.uniswap_quote.ts
-              ).getTime()
+            new Date(
+              dashboardData.market_state.csr25_usdt.uniswap_quote.ts
+            ).getTime()
             : null,
         },
       },
@@ -592,7 +594,7 @@ app.get("/api/dex-quotes/fallback", async (req, res) => {
   try {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
+
     if (!supabaseUrl || !supabaseKey) {
       return res.status(503).json({ error: "Database not configured" });
     }
@@ -610,7 +612,7 @@ app.get("/api/dex-quotes/fallback", async (req, res) => {
     }
 
     const snapshots = await response.json() as any[];
-    
+
     // Transform to quote format
     const quotes = snapshots.map((snap: any) => ({
       market: snap.market,
@@ -633,7 +635,7 @@ app.get("/api/price-deviation-history", async (req, res) => {
   try {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
+
     if (!supabaseUrl || !supabaseKey) {
       return res.status(503).json({ error: "Database not configured" });
     }
@@ -651,7 +653,7 @@ app.get("/api/price-deviation-history", async (req, res) => {
     }
 
     const snapshots = await response.json() as any[];
-    
+
     // Transform to expected format
     const history = snapshots.map((snap: any) => ({
       market: snap.market,
@@ -662,7 +664,7 @@ app.get("/api/price-deviation-history", async (req, res) => {
       deviation_percent: Math.abs(parseFloat(snap.spread_bps) / 100)
     }));
 
-    res.json({ 
+    res.json({
       history,
       count: history.length,
       source: "database"
@@ -687,16 +689,16 @@ app.get("/api/system/status", async (req, res) => {
     { name: 'uniswap-scraper', url: 'http://localhost:3010/health' },
     { name: 'uniswap-quote-csr25', url: 'http://localhost:3002/health' },
   ];
-  
+
   const results = await Promise.all(services.map(async (svc) => {
     try {
       const response = await axios.get(svc.url, { timeout: 5000 });
       const data = response.data;
-      
+
       let status: 'ok' | 'degraded' | 'down' = 'ok';
       if (data.status === 'unhealthy' || data.status === 'down') status = 'down';
       else if (data.status === 'degraded') status = 'degraded';
-      
+
       // Check staleness
       if (data.last_message_ts) {
         const staleness = Date.now() - new Date(data.last_message_ts).getTime();
@@ -704,7 +706,7 @@ app.get("/api/system/status", async (req, res) => {
         else if (staleness > 15000) status = 'degraded';
       }
       if (data.connected === false) status = 'down';
-      
+
       return {
         name: svc.name,
         status,
@@ -729,10 +731,10 @@ app.get("/api/system/status", async (req, res) => {
       };
     }
   }));
-  
+
   const allOk = results.every(r => r.status === 'ok');
   const anyDown = results.some(r => r.status === 'down');
-  
+
   res.json({
     status: anyDown ? 'down' : allOk ? 'ok' : 'degraded',
     ts: new Date().toISOString(),
@@ -791,11 +793,11 @@ interface AlignmentResult {
   deviation_pct: number | null;
   band_bps: number;
   status:
-    | "ALIGNED"
-    | "BUY_ON_DEX"
-    | "SELL_ON_DEX"
-    | "NO_ACTION"
-    | "NOT_SUPPORTED_YET";
+  | "ALIGNED"
+  | "BUY_ON_DEX"
+  | "SELL_ON_DEX"
+  | "NO_ACTION"
+  | "NOT_SUPPORTED_YET";
   direction: "BUY" | "SELL" | "NONE";
   required_usdt: number | null;
   required_tokens: number | null;
@@ -1020,13 +1022,11 @@ app.get("/api/alignment/:market", async (req, res) => {
         targetQuote = freshQuotes[freshQuotes.length - 1];
         result.reason = `sell_max_available: need ${neededMovePct.toFixed(
           2
-        )}% move, using $${
-          targetQuote.amountInUSDT
-        } (${targetQuote.impactPct.toFixed(2)}% impact)`;
+        )}% move, using $${targetQuote.amountInUSDT
+          } (${targetQuote.impactPct.toFixed(2)}% impact)`;
       } else {
-        result.reason = `sell_estimated: $${
-          targetQuote.amountInUSDT
-        } for ${neededMovePct.toFixed(2)}% price correction`;
+        result.reason = `sell_estimated: $${targetQuote.amountInUSDT
+          } for ${neededMovePct.toFixed(2)}% price correction`;
       }
 
       // For SELL: required_tokens = tokens to sell, required_usdt = expected USDT received
@@ -1114,11 +1114,10 @@ app.get("/api/alignment/:market", async (req, res) => {
       exactPrice = exactUsdt / exactTokens;
       exactImpact = neededMovePct;
 
-      selectionReason = `interpolated: $${exactUsdt.toFixed(2)} between $${
-        lowerQuote.amountInUSDT
-      } and $${upperQuote.amountInUSDT} for ${neededMovePct.toFixed(
-        2
-      )}% impact`;
+      selectionReason = `interpolated: $${exactUsdt.toFixed(2)} between $${lowerQuote.amountInUSDT
+        } and $${upperQuote.amountInUSDT} for ${neededMovePct.toFixed(
+          2
+        )}% impact`;
     } else if (upperQuote) {
       // Use the first quote that exceeds needed impact (no lower bound to interpolate from)
       exactUsdt = upperQuote.amountInUSDT;
@@ -1156,8 +1155,8 @@ app.get("/api/alignment/:market", async (req, res) => {
       validQuotes.length >= 5
         ? "HIGH"
         : validQuotes.length >= 3
-        ? "MEDIUM"
-        : "LOW";
+          ? "MEDIUM"
+          : "LOW";
 
     // Build reason string showing WHY this size was chosen
     result.reason = selectionReason;
@@ -1479,8 +1478,8 @@ app.get("/api/ladder/:token", async (req, res) => {
     const spotPrice =
       validQuotes.length > 0
         ? validQuotes.reduce((a: any, b: any) =>
-            a.amountInUSDT < b.amountInUSDT ? a : b
-          ).price_usdt_per_token
+          a.amountInUSDT < b.amountInUSDT ? a : b
+        ).price_usdt_per_token
         : null;
 
     // Enrich quotes with calculated fields
@@ -1796,7 +1795,7 @@ app.get('/api/debug', (req, res) => {
 const server = http.createServer(app);
 
 // Create WebSocket server
-const wss = new WebSocketServer({ 
+const wss = new WebSocketServer({
   server,
   path: '/ws'
 });
@@ -1804,15 +1803,15 @@ const wss = new WebSocketServer({
 wss.on('connection', (ws: WebSocket) => {
   console.log('WebSocket client connected');
   wsClients.add(ws);
-  
+
   // Send initial data
   ws.send(JSON.stringify(dashboardData));
-  
+
   ws.on('close', () => {
     console.log('WebSocket client disconnected');
     wsClients.delete(ws);
   });
-  
+
   ws.on('error', (error) => {
     console.error('WebSocket error:', error);
     wsClients.delete(ws);
@@ -1825,8 +1824,103 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`WebSocket server running on ws://localhost:${PORT}/ws`);
 });
 
-// Start polling
-setInterval(fetchServiceData, 1000);
+// Start polling (as fallback, reduced frequency when Redis is working)
+setInterval(fetchServiceData, 2000);
 
 // Initial fetch
 fetchServiceData();
+
+// ============================================================
+// REDIS STREAMS INTEGRATION
+// Real-time market data from gateways via Redis
+// ============================================================
+
+const redisConsumer = new RedisConsumer(REDIS_URL);
+
+// Handle incoming market ticks from Redis
+redisConsumer.on('tick', (tick) => {
+  const now = new Date().toISOString();
+
+  // Update market state based on tick type and source
+  if (!dashboardData.market_state) {
+    dashboardData.market_state = {
+      ts: now,
+      csr_usdt: {},
+      csr25_usdt: {},
+      is_stale: false,
+    };
+  }
+
+  // Determine which market this tick belongs to
+  const symbol = tick.symbol?.toLowerCase() || '';
+  const market = symbol.includes('csr25') ? 'csr25_usdt' : 'csr_usdt';
+
+  if (tick.type === 'cex_tick') {
+    // CEX tick from LBank or Latoken
+    const tickerData = {
+      bid: tick.bid,
+      ask: tick.ask,
+      last: tick.last,
+      volume_24h: tick.volume_24h,
+      ts: tick.ts,
+      source: tick.source,
+    };
+
+    if (tick.source === 'lbank') {
+      dashboardData.market_state[market].lbank_ticker = tickerData;
+    } else if (tick.source === 'latoken') {
+      dashboardData.market_state[market].latoken_ticker = tickerData;
+    }
+  } else if (tick.type === 'dex_quote') {
+    // DEX quote from Uniswap gateway
+    dashboardData.market_state[market].uniswap_quote = {
+      effective_price_usdt: tick.effective_price_usdt,
+      amount_in: tick.amount_in,
+      amount_out: tick.amount_out,
+      gas_estimate_usdt: tick.gas_estimate_usdt,
+      route: tick.route,
+      ts: tick.ts,
+      source: tick.source,
+    };
+  }
+
+  dashboardData.market_state.ts = now;
+  dashboardData.market_state.is_stale = false;
+  dashboardData.ts = now;
+
+  // Broadcast to WebSocket clients immediately
+  if (wsClients.size > 0) {
+    const message = JSON.stringify(dashboardData);
+    wsClients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
+  }
+});
+
+redisConsumer.on('connected', () => {
+  console.log('[Backend] Redis Streams connected - receiving real-time data');
+});
+
+redisConsumer.on('error', (error) => {
+  console.error('[Backend] Redis consumer error:', error.message);
+});
+
+redisConsumer.on('disconnected', () => {
+  console.warn('[Backend] Redis disconnected - falling back to HTTP polling');
+});
+
+// Start Redis consumer
+redisConsumer.start().catch((err) => {
+  console.error('[Backend] Failed to start Redis consumer:', err);
+  console.log('[Backend] Continuing with HTTP polling only');
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('[Backend] Shutting down...');
+  await redisConsumer.stop();
+  server.close();
+  process.exit(0);
+});

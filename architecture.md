@@ -8,7 +8,7 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 
 …and support a future upgrade to inventory arbitrage execution.
 
-## Non-Goals (for MVP)
+## Non-Goals (for MVP) but goals after MVP
 - Automated withdrawals / cross-venue transfers
 - Fully automated trading execution
 - Complex route optimization beyond basic quoting
