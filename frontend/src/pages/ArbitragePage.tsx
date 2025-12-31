@@ -955,14 +955,8 @@ export function ArbitragePage() {
       alert("Kill switch is active - cannot execute");
       return;
     }
-    if (state.mode === "PAPER") {
-      console.log("Paper trade executed:", opp);
-      alert(
-        `PAPER TRADE: ${opp.direction} ${opp.market} - $${opp.max_safe_size}`
-      );
-    } else if (state.mode === "MANUAL") {
-      setSelectedOpp(opp);
-    }
+    // Show professional execution panel for both PAPER and MANUAL modes
+    setSelectedOpp(opp);
   };
 
   return (
@@ -1418,9 +1412,9 @@ export function ArbitragePage() {
           </div>
         </div>
 
-        {/* Execution Confirmation Modal with Amount Selection */}
+        {/* Professional Arbitrage Execution Panel */}
         {selectedOpp && (
-          <TradeExecutionModal
+          <ArbitrageExecutionPanel
             opportunity={selectedOpp}
             onClose={() => setSelectedOpp(null)}
             mode={state.mode}
