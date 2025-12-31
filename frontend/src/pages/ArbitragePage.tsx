@@ -12,7 +12,7 @@
  * - Trade execution interface
  */
 
-import { Zap } from "lucide-react";
+// Zap icon removed - not needed
 import { useEffect, useState } from "react";
 import { AdvancedMetricsCard } from "../components/AdvancedMetricsCard";
 import { CustodialRiskModal } from "../components/CustodialRiskModal";
@@ -620,7 +620,9 @@ export function ArbitragePage() {
   });
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
   const [showRiskModal, setShowRiskModal] = useState(false);
-  const [pendingMode, setPendingMode] = useState<"PAPER" | "MANUAL" | "AUTO" | null>(null);
+  const [_pendingMode, setPendingMode] = useState<
+    "PAPER" | "MANUAL" | "AUTO" | null
+  >(null);
   const [userInventory, setUserInventory] = useState<UserInventory | null>(
     null
   );
@@ -1117,7 +1119,7 @@ export function ArbitragePage() {
                       : "text-slate-400 hover:text-white hover:bg-slate-700"
                   }`}
                 >
-                  {m === "AUTO" && <Zap className="w-3 h-3" />}
+                  {m === "AUTO" && <span className="text-xs">⚡</span>}
                   {m}
                 </button>
               ))}

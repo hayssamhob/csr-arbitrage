@@ -12,12 +12,26 @@ interface PoolState {
   lastUpdate: string;
 }
 
-export const UniswapTradePanel: React.FC = () => {
+interface UniswapTradePanelProps {
+  token?: "CSR" | "CSR25";
+  dexPrice?: number;
+  cexPrice?: number;
+  direction?: "buy" | "sell";
+  onClose?: () => void;
+}
+
+export const UniswapTradePanel: React.FC<UniswapTradePanelProps> = ({
+  token,
+  dexPrice: _dexPrice,
+  cexPrice: _cexPrice,
+  direction: _initialDirection,
+  onClose: _onClose,
+}) => {
   const { isConnected } = useWallet();
 
-  // State for token selection
+  // State for token selection - use prop if provided
   const [selectedTokenSymbol, setSelectedTokenSymbol] = useState<string>(
-    PRESET_TOKENS[0].symbol
+    token || PRESET_TOKENS[0].symbol
   );
   const [customTokenAddress, setCustomTokenAddress] = useState<string>("");
   const [amount, setAmount] = useState<string>("");

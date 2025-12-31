@@ -1,5 +1,12 @@
 import { ethers } from 'ethers';
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import type { ReactNode } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 
 // Define window.ethereum type
 declare global {
