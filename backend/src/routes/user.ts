@@ -685,23 +685,35 @@ async function fetchLatokenBalances(
 ): Promise<any[]> {
   const ccxt = require("ccxt");
 
+  console.log(
+    "[LATOKEN] Fetching balances with API key:",
+    apiKey.substring(0, 8) + "..."
+  );
+
   try {
     const exchange = new ccxt.latoken({
       apiKey: apiKey,
       secret: apiSecret,
       enableRateLimit: true,
+      timeout: 30000,
     });
 
     const balance = await exchange.fetchBalance();
+    console.log("[LATOKEN] Raw balance response keys:", Object.keys(balance));
 
     // Transform CCXT balance response to our format
     const balances: any[] = [];
+
+    // Check all currencies, not just those with positive balance
+    const currencies = Object.keys(balance.total || {});
+    console.log("[LATOKEN] Found currencies:", currencies.length);
 
     for (const [currency, data] of Object.entries(balance.total || {})) {
       const total = data as number;
       if (total > 0) {
         const free = (balance.free?.[currency] as number) || 0;
         const used = (balance.used?.[currency] as number) || 0;
+        console.log(`[LATOKEN] Balance found: ${currency} = ${total}`);
         balances.push({
           venue: "LATOKEN",
           asset: currency.toUpperCase(),
@@ -713,9 +725,11 @@ async function fetchLatokenBalances(
       }
     }
 
+    console.log("[LATOKEN] Returning", balances.length, "balances");
     return balances;
   } catch (error: any) {
-    console.error("LATOKEN balance fetch error:", error.message);
+    console.error("[LATOKEN] Balance fetch error:", error.message);
+    console.error("[LATOKEN] Error details:", error.constructor?.name);
     throw new Error(`LATOKEN: ${error.message}`);
   }
 }

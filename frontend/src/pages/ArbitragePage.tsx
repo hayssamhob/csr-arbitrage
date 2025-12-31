@@ -53,9 +53,10 @@ function getDexUrl(market: string): string {
   return urls[token] || "#";
 }
 
-// Staleness check - abort if data is older than threshold (30 seconds for CEX, 60 for DEX)
+// Staleness check - warn if data is older than threshold (30 seconds for CEX, 120 for DEX)
+// DEX has longer threshold since V4 quotes update less frequently
 const STALENESS_THRESHOLD_CEX_MS = 30000;
-const STALENESS_THRESHOLD_DEX_MS = 60000;
+const STALENESS_THRESHOLD_DEX_MS = 120000;
 
 // Traffic Light Edge Indicator Component
 // Red: Negative or below threshold, Yellow: Near threshold, Green: Profitable
@@ -791,22 +792,9 @@ export function ArbitragePage() {
                 ? "BUY_DEX_SELL_CEX"
                 : "BUY_CEX_SELL_DEX",
             is_actionable: (() => {
-              // Staleness check - BLOCK if data is stale
-              const cexStale = isDataStale(
-                csrLatoken.ts,
-                STALENESS_THRESHOLD_CEX_MS
-              );
-              const dexStale = isDataStale(
-                csrDex.ts,
-                STALENESS_THRESHOLD_DEX_MS
-              );
-              if (cexStale || dexStale) return false;
-              if (!userLimits.loaded) return false;
+              // Allow trades if edge meets threshold - user decides on staleness risk
               if (userLimits.kill_switch) return false;
-              return (
-                csrDecision?.would_trade ??
-                Math.abs(edgeBps) >= userLimits.min_edge_bps
-              );
+              return Math.abs(edgeBps) >= (userLimits.min_edge_bps || 50);
             })(),
             reason: (() => {
               const cexStale = isDataStale(
@@ -896,22 +884,9 @@ export function ArbitragePage() {
                 ? "BUY_DEX_SELL_CEX"
                 : "BUY_CEX_SELL_DEX",
             is_actionable: (() => {
-              // Staleness check - BLOCK if data is stale
-              const cexStale = isDataStale(
-                csr25Lbank.ts,
-                STALENESS_THRESHOLD_CEX_MS
-              );
-              const dexStale = isDataStale(
-                csr25Dex.ts,
-                STALENESS_THRESHOLD_DEX_MS
-              );
-              if (cexStale || dexStale) return false;
-              if (!userLimits.loaded) return false;
+              // Allow trades if edge meets threshold - user decides on staleness risk
               if (userLimits.kill_switch) return false;
-              return (
-                csr25Decision?.would_trade ??
-                Math.abs(edgeBps) >= userLimits.min_edge_bps
-              );
+              return Math.abs(edgeBps) >= (userLimits.min_edge_bps || 50);
             })(),
             reason: (() => {
               const cexStale = isDataStale(
