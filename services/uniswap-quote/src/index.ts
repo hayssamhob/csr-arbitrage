@@ -56,11 +56,9 @@ async function getQuote(symbol: 'CSR' | 'CSR25', amountUsdt: number) {
     for (const route of routes) {
         try {
             const pathHex = encodePath(route.path, route.fees);
-            console.log(`[Quote] Trying route: ${route.path.join('->')} with fees ${route.fees.join(', ')}`);
             const [amountOut, , , gasEstimate] = await quoter.callStatic.quoteExactInput(pathHex, amountIn);
 
             const price = amountUsdt / parseFloat(ethers.utils.formatUnits(amountOut, 18));
-            console.log(`[Quote] Success! ${symbol} Price: ${price.toFixed(6)}`);
 
             return {
                 price,
@@ -70,7 +68,7 @@ async function getQuote(symbol: 'CSR' | 'CSR25', amountUsdt: number) {
                 ts: Date.now()
             };
         } catch (e: any) {
-            console.log(`[Quote] Route failed: ${route.path.join('->')}: ${e.message?.slice(0, 100)}`);
+            // Continue to next route
         }
     }
     return null;
@@ -102,11 +100,9 @@ async function publishTick(symbol: string, data: any) {
 async function main() {
     console.log(`Uniswap Quote Service starting...`);
     console.log(`RPC: ${config.RPC_URL.slice(0, 30)}...`);
-    console.log(`Redis: ${config.REDIS_URL}`);
-    console.log(`Quoter: ${CONTRACTS.UNISWAP_QUOTER}`);
+    console.log(`Redis: ${config.REDIS_URL.split('@')[1] || config.REDIS_URL}`);
 
     const poll = async () => {
-        console.log(`[Quote] Starting poll loop at ${new Date().toISOString()}`);
         try {
             // Fetch both prices in parallel
             const [csrQuote, csr25Quote] = await Promise.all([
@@ -116,14 +112,10 @@ async function main() {
 
             if (csrQuote) {
                 await publishTick('csr', csrQuote);
-            } else {
-                console.log(`[Quote] No CSR quote found in this cycle`);
             }
 
             if (csr25Quote) {
                 await publishTick('csr25', csr25Quote);
-            } else {
-                console.log(`[Quote] No CSR25 quote found in this cycle`);
             }
 
         } catch (err) {
