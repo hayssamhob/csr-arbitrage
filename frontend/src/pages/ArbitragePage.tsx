@@ -57,6 +57,35 @@ function getDexUrl(market: string): string {
 const STALENESS_THRESHOLD_CEX_MS = 30000;
 const STALENESS_THRESHOLD_DEX_MS = 60000;
 
+// Traffic Light Edge Indicator Component
+// Red: Negative or below threshold, Yellow: Near threshold, Green: Profitable
+function EdgeTrafficLight({ edgeBps, minEdgeBps = 50 }: { edgeBps: number; minEdgeBps?: number }) {
+  let color: string;
+  let label: string;
+  let bgColor: string;
+  
+  if (edgeBps < 0) {
+    color = "text-red-500";
+    bgColor = "bg-red-500";
+    label = "NO GO";
+  } else if (edgeBps < minEdgeBps) {
+    color = "text-yellow-500";
+    bgColor = "bg-yellow-500";
+    label = "CAUTION";
+  } else {
+    color = "text-emerald-500";
+    bgColor = "bg-emerald-500";
+    label = "GO";
+  }
+  
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`w-3 h-3 rounded-full ${bgColor} animate-pulse`} />
+      <span className={`text-xs font-bold ${color}`}>{label}</span>
+    </div>
+  );
+}
+
 function isDataStale(ts: string | undefined, thresholdMs: number): boolean {
   if (!ts) return true;
   const age = Date.now() - new Date(ts).getTime();
@@ -1075,17 +1104,18 @@ export function ArbitragePage() {
                     m === "PAPER"
                       ? "Simulate trades without real execution"
                       : m === "MANUAL"
-                        ? "Confirm each trade before execution"
-                        : "Automatic execution (requires consent)"
+                      ? "Confirm each trade before execution"
+                      : "Automatic execution (requires consent)"
                   }
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all flex items-center gap-1.5 ${state.mode === m
-                    ? m === "AUTO"
-                      ? "bg-emerald-600 text-white shadow-sm shadow-emerald-500/20"
-                      : m === "PAPER"
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all flex items-center gap-1.5 ${
+                    state.mode === m
+                      ? m === "AUTO"
+                        ? "bg-emerald-600 text-white shadow-sm shadow-emerald-500/20"
+                        : m === "PAPER"
                         ? "bg-yellow-600 text-white"
                         : "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-white hover:bg-slate-700"
-                    }`}
+                      : "text-slate-400 hover:text-white hover:bg-slate-700"
+                  }`}
                 >
                   {m === "AUTO" && <Zap className="w-3 h-3" />}
                   {m}
@@ -1102,12 +1132,13 @@ export function ArbitragePage() {
           <div>
             <span className="text-slate-500">Mode:</span>
             <span
-              className={`ml-2 font-medium ${state.mode === "PAPER"
-                ? "text-yellow-400"
-                : state.mode === "MANUAL"
+              className={`ml-2 font-medium ${
+                state.mode === "PAPER"
+                  ? "text-yellow-400"
+                  : state.mode === "MANUAL"
                   ? "text-blue-400"
                   : "text-green-400"
-                }`}
+              }`}
             >
               {state.mode}
             </span>
@@ -1115,8 +1146,9 @@ export function ArbitragePage() {
           <div>
             <span className="text-slate-500">Daily P&L:</span>
             <span
-              className={`ml-2 font-mono ${state.daily_pnl >= 0 ? "text-emerald-400" : "text-red-400"
-                }`}
+              className={`ml-2 font-mono ${
+                state.daily_pnl >= 0 ? "text-emerald-400" : "text-red-400"
+              }`}
             >
               ${state.daily_pnl.toFixed(2)}
             </span>
@@ -1170,8 +1202,8 @@ export function ArbitragePage() {
                   {userInventory.balances.filter(
                     (b) => b.venue === "Wallet" && b.available > 0
                   ).length === 0 && (
-                      <div className="text-xs text-slate-500">No assets</div>
-                    )}
+                    <div className="text-xs text-slate-500">No assets</div>
+                  )}
                 </div>
               </div>
               {/* LBank */}
@@ -1194,8 +1226,8 @@ export function ArbitragePage() {
                   {userInventory.balances.filter(
                     (b) => b.venue === "LBank" && b.available > 0
                   ).length === 0 && (
-                      <div className="text-xs text-slate-500">No assets</div>
-                    )}
+                    <div className="text-xs text-slate-500">No assets</div>
+                  )}
                 </div>
               </div>
               {/* LATOKEN */}
@@ -1218,8 +1250,8 @@ export function ArbitragePage() {
                   {userInventory.balances.filter(
                     (b) => b.venue === "LATOKEN" && b.available > 0
                   ).length === 0 && (
-                      <div className="text-xs text-slate-500">No assets</div>
-                    )}
+                    <div className="text-xs text-slate-500">No assets</div>
+                  )}
                 </div>
               </div>
               {/* Trading Capacity */}
@@ -1269,8 +1301,9 @@ export function ArbitragePage() {
                 {state.opportunities.map((opp, idx) => (
                   <tr
                     key={idx}
-                    className={`${opp.is_actionable ? "hover:bg-slate-800/30" : "opacity-50"
-                      }`}
+                    className={`${
+                      opp.is_actionable ? "hover:bg-slate-800/30" : "opacity-50"
+                    }`}
                   >
                     <td className="px-4 py-3 font-medium">{opp.market}</td>
                     <td className="px-4 py-3 text-slate-400">
@@ -1311,22 +1344,32 @@ export function ArbitragePage() {
                       />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div
-                        className={`font-mono font-medium ${opp.edge_bps >= 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                          }`}
-                      >
-                        {opp.edge_bps >= 0 ? "+" : ""}
-                        {opp.edge_bps} bps
-                      </div>
-                      <div
-                        className={`text-xs ${opp.edge_usd >= 0
-                          ? "text-emerald-400/70"
-                          : "text-red-400/70"
-                          }`}
-                      >
-                        ${opp.edge_usd.toFixed(2)}
+                      <div className="flex items-center justify-end gap-2">
+                        <EdgeTrafficLight
+                          edgeBps={opp.edge_bps}
+                          minEdgeBps={userLimits.min_edge_bps || 50}
+                        />
+                        <div>
+                          <div
+                            className={`font-mono font-medium ${
+                              opp.edge_bps >= 0
+                                ? "text-emerald-400"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {opp.edge_bps >= 0 ? "+" : ""}
+                            {opp.edge_bps} bps
+                          </div>
+                          <div
+                            className={`text-xs ${
+                              opp.edge_usd >= 0
+                                ? "text-emerald-400/70"
+                                : "text-red-400/70"
+                            }`}
+                          >
+                            ${opp.edge_usd.toFixed(2)}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -1350,10 +1393,11 @@ export function ArbitragePage() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${opp.direction === "BUY_DEX_SELL_CEX"
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-blue-500/20 text-blue-400"
-                          }`}
+                        className={`px-2 py-1 rounded text-xs font-medium ${
+                          opp.direction === "BUY_DEX_SELL_CEX"
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : "bg-blue-500/20 text-blue-400"
+                        }`}
                       >
                         {opp.direction.replace(/_/g, " ")}
                       </span>
@@ -1363,10 +1407,11 @@ export function ArbitragePage() {
                         <button
                           onClick={() => handleExecute(opp)}
                           disabled={state.kill_switch}
-                          className={`px-3 py-1 rounded text-xs font-medium transition-all ${state.kill_switch
-                            ? "bg-slate-700 text-slate-500 cursor-not-allowed"
-                            : "bg-blue-600 text-white hover:bg-blue-500"
-                            }`}
+                          className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                            state.kill_switch
+                              ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+                              : "bg-blue-600 text-white hover:bg-blue-500"
+                          }`}
                         >
                           {state.mode === "PAPER" ? "Simulate" : "Execute"}
                         </button>
@@ -1400,9 +1445,9 @@ export function ArbitragePage() {
               cexPrice={
                 state.dashboard?.market_state?.csr_usdt?.latoken_ticker
                   ? (state.dashboard.market_state.csr_usdt.latoken_ticker.bid +
-                    state.dashboard.market_state.csr_usdt.latoken_ticker
-                      .ask) /
-                  2
+                      state.dashboard.market_state.csr_usdt.latoken_ticker
+                        .ask) /
+                    2
                   : 0
               }
               dexPrice={
@@ -1421,9 +1466,9 @@ export function ArbitragePage() {
               cexPrice={
                 state.dashboard?.market_state?.csr25_usdt?.lbank_ticker
                   ? (state.dashboard.market_state.csr25_usdt.lbank_ticker.bid +
-                    state.dashboard.market_state.csr25_usdt.lbank_ticker
-                      .ask) /
-                  2
+                      state.dashboard.market_state.csr25_usdt.lbank_ticker
+                        .ask) /
+                    2
                   : 0
               }
               dexPrice={

@@ -85,13 +85,28 @@ export const StrategyDecisionSchema = z.object({
       gas_cost_bps: z.number(),
       rebalance_bps: z.number(),
       slippage_bps: z.number(),
+      v4_tick: z.number().optional(),
+      v4_lp_fee_raw: z.number().optional(),
     })
     .optional(),
   edge_after_costs_bps: z.number(),
+  // NetTradeableEdge - the real profit after V4 fees and gas
+  net_tradeable_edge_bps: z.number().optional(),
+  net_profit_usdt: z.number().optional(),
   would_trade: z.boolean(),
   direction: z.enum(["buy_cex_sell_dex", "buy_dex_sell_cex", "none"]),
   suggested_size_usdt: z.number(),
   reason: z.string(),
+  // V4 PoolKey for execution
+  pool_key: z
+    .object({
+      currency0: z.string(),
+      currency1: z.string(),
+      fee: z.number(),
+      tickSpacing: z.number(),
+      hooks: z.string(),
+    })
+    .optional(),
 });
 
 export type StrategyDecision = z.infer<typeof StrategyDecisionSchema>;

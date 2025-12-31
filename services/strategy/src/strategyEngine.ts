@@ -400,8 +400,8 @@ export class StrategyEngine {
       gas_cost_bps: Math.round(gasCostBps * 100) / 100,
       rebalance_bps: Math.round(rebalanceBps * 100) / 100,
       slippage_bps: Math.round(slippageBps * 100) / 100,
-      v4_tick: quote.tick || null,
-      v4_lp_fee_raw: quote.lp_fee_bps || null,
+      v4_tick: quote.tick || undefined,
+      v4_lp_fee_raw: quote.lp_fee_bps || undefined,
     };
     const edgeAfterCostsBps = rawSpreadBps - estimatedCostBps;
 
@@ -418,19 +418,45 @@ export class StrategyEngine {
       );
     }
 
+    // Calculate NetTradeableEdge - the real profit after all V4 costs
+    const netTradeableEdgeBps = edgeAfterCostsBps;
+    const netProfitUsdt = (netTradeableEdgeBps / 10000) * suggestedSize;
+
     // Build reason string
     let reason: string;
     if (direction === "none") {
       reason = "No positive spread opportunity";
     } else if (!wouldTrade) {
-      reason = `Edge ${edgeAfterCostsBps.toFixed(1)}bps below threshold ${
+      reason = `NetEdge ${netTradeableEdgeBps.toFixed(1)}bps below threshold ${
         this.config.MIN_EDGE_BPS
       }bps`;
     } else {
-      reason = `Edge ${edgeAfterCostsBps.toFixed(
+      reason = `NetEdge ${netTradeableEdgeBps.toFixed(
         1
       )}bps exceeds threshold, direction: ${direction}`;
     }
+
+    // Build V4 PoolKey for execution (sorted by address)
+    const symbol = ticker.symbol.toLowerCase();
+    const isCSR25 = symbol.includes("csr25");
+    const tokenAddress = isCSR25
+      ? "0x502E7230E142A332DFEd1095F7174834b2548982" // CSR25
+      : "0x75Ecb52e403C617679FBd3e77A50f9d10A842387"; // CSR
+    const usdtAddress = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+
+    // V4 requires sorted currencies (lower address first)
+    const [currency0, currency1] =
+      tokenAddress.toLowerCase() < usdtAddress.toLowerCase()
+        ? [tokenAddress, usdtAddress]
+        : [usdtAddress, tokenAddress];
+
+    const poolKey = {
+      currency0,
+      currency1,
+      fee: quote.lp_fee_bps || 3000, // Use real fee from V4 or default 0.3%
+      tickSpacing: 60, // Standard for 0.3% pools
+      hooks: "0x0000000000000000000000000000000000000000",
+    };
 
     return {
       type: "strategy.decision",
@@ -443,10 +469,13 @@ export class StrategyEngine {
       estimated_cost_bps: Math.round(estimatedCostBps * 100) / 100,
       cost_breakdown: costBreakdown,
       edge_after_costs_bps: Math.round(edgeAfterCostsBps * 100) / 100,
+      net_tradeable_edge_bps: Math.round(netTradeableEdgeBps * 100) / 100,
+      net_profit_usdt: Math.round(netProfitUsdt * 100) / 100,
       would_trade: wouldTrade,
       direction,
       suggested_size_usdt: suggestedSize,
       reason,
+      pool_key: poolKey,
     };
   }
 }

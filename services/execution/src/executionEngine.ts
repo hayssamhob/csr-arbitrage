@@ -322,6 +322,21 @@ export class ExecutionEngine {
     this.db.updateTradeStatus(trade.id, "filled", fillPrice, simulatedPnl);
     this.activeOrders.delete(trade.id);
 
+    // Log V4 swap path for debugging
+    const poolKey = params?.poolKey;
+    if (poolKey) {
+      this.log("info", "v4_swap_path", {
+        pool_manager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+        currency0: poolKey.currency0,
+        currency1: poolKey.currency1,
+        fee: poolKey.fee,
+        tick_spacing: poolKey.tickSpacing,
+        hooks: poolKey.hooks,
+        direction: trade.direction,
+        zero_for_one: trade.direction === "buy_dex_sell_cex",
+      });
+    }
+
     this.log("info", "paper_trade_filled", {
       trade_id: trade.id,
       symbol: trade.symbol,
@@ -333,6 +348,13 @@ export class ExecutionEngine {
       slippage_bps: totalSlippageBps,
       lp_fee_bps: lpFeeBps,
       simulated_pnl: simulatedPnl,
+      v4_tick: params?.tick,
+      pool_key: poolKey
+        ? `${poolKey.currency0.slice(0, 10)}.../${poolKey.currency1.slice(
+            0,
+            10
+          )}...`
+        : undefined,
     });
 
     return {
