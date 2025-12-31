@@ -64,6 +64,9 @@ export const UniswapTradePanel: React.FC<UniswapTradePanelProps> = ({
   const [amount, setAmount] = useState<string>("");
   const [tradeDirection, setTradeDirection] = useState<"buy" | "sell">("buy");
 
+  // Slippage settings for arbitrage execution
+  const [slippage, setSlippage] = useState<number>(0.1); // Default 0.1% for arb
+
   // Pool state from V4
   const [poolState, setPoolState] = useState<PoolState | null>(null);
 
@@ -212,6 +215,35 @@ export const UniswapTradePanel: React.FC<UniswapTradePanelProps> = ({
             />
           </div>
         )}
+      </div>
+
+      {/* Slippage Toggle */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-slate-400 mb-2">
+          Slippage Tolerance
+        </label>
+        <div className="flex gap-2">
+          {[0.1, 0.5, 1.0].map((val) => (
+            <button
+              key={val}
+              onClick={() => setSlippage(val)}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+                slippage === val
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              {val}%
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 mt-1">
+          {slippage === 0.1
+            ? "Recommended for arbitrage"
+            : slippage === 0.5
+            ? "Standard"
+            : "Use during high volatility"}
+        </p>
       </div>
 
       {/* Trade Direction */}
