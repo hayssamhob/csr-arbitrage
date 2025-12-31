@@ -12,6 +12,33 @@ interface PoolState {
   lastUpdate: string;
 }
 
+// Freshness indicator - shows green/yellow/red based on data age
+const FreshnessIndicator: React.FC<{ lastUpdate: string }> = ({ lastUpdate }) => {
+  const getAgeSeconds = () => {
+    if (!lastUpdate || lastUpdate === "N/A") return 999;
+    const now = new Date();
+    const updateTime = new Date();
+    const [time, period] = lastUpdate.split(" ");
+    if (!time) return 999;
+    const [hours, minutes, seconds] = time.split(":").map(Number);
+    updateTime.setHours(period === "PM" && hours !== 12 ? hours + 12 : hours);
+    updateTime.setMinutes(minutes);
+    updateTime.setSeconds(seconds || 0);
+    return Math.floor((now.getTime() - updateTime.getTime()) / 1000);
+  };
+  
+  const age = getAgeSeconds();
+  const isFresh = age < 15;
+  const isStale = age > 60;
+  
+  return (
+    <span className={`flex items-center gap-1 ${isFresh ? "text-green-400" : isStale ? "text-red-400" : "text-yellow-400"}`}>
+      <span className={`w-2 h-2 rounded-full ${isFresh ? "bg-green-400" : isStale ? "bg-red-400" : "bg-yellow-400"} ${isFresh ? "animate-pulse" : ""}`} />
+      {isFresh ? "Live" : isStale ? "Stale" : "Updating"}
+    </span>
+  );
+};
+
 interface UniswapTradePanelProps {
   token?: "CSR" | "CSR25";
   dexPrice?: number;
@@ -101,12 +128,12 @@ export const UniswapTradePanel: React.FC<UniswapTradePanelProps> = ({
         </div>
       </div>
 
-      {/* V4 Pool Health Monitor */}
+      {/* V4 Pool Health Monitor with sqrtPriceX96 */}
       {poolState && selectedTokenSymbol !== "CUSTOM" && (
         <div className="mb-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
           <div className="text-xs text-slate-400 mb-2 flex justify-between">
-            <span>Pool State ({selectedTokenSymbol}/USDT)</span>
-            <span className="text-green-400">● Live</span>
+            <span>V4 Pool State ({selectedTokenSymbol}/USDT)</span>
+            <FreshnessIndicator lastUpdate={poolState.lastUpdate} />
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
@@ -124,7 +151,7 @@ export const UniswapTradePanel: React.FC<UniswapTradePanelProps> = ({
             <div>
               <span className="text-slate-500">LP Fee:</span>
               <span className="text-yellow-400 ml-2 font-mono">
-                {poolState.lpFee} bps
+                {(poolState.lpFee / 100).toFixed(2)}%
               </span>
             </div>
             <div>
@@ -134,6 +161,22 @@ export const UniswapTradePanel: React.FC<UniswapTradePanelProps> = ({
               </span>
             </div>
           </div>
+          {/* sqrtPriceX96 for advanced users */}
+          {poolState.sqrtPriceX96 && poolState.sqrtPriceX96 !== "0" && (
+            <div className="mt-2 pt-2 border-t border-slate-700">
+              <div className="text-xs text-slate-500">
+                <span>sqrtPriceX96:</span>
+                <span className="ml-2 font-mono text-slate-400 break-all">
+                  {poolState.sqrtPriceX96.length > 30
+                    ? `${poolState.sqrtPriceX96.slice(
+                        0,
+                        15
+                      )}...${poolState.sqrtPriceX96.slice(-10)}`
+                    : poolState.sqrtPriceX96}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
