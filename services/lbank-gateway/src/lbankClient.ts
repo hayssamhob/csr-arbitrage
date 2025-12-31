@@ -144,7 +144,7 @@ export class LBankClient extends EventEmitter {
       const tickerSub = JSON.stringify({
         action: "subscribe",
         subscribe: "tick",
-        pair: symbol,
+        pair: symbol.toLowerCase(),
       });
       this.ws.send(tickerSub);
       this.onLog("debug", "subscribe_sent", { channel: "tick", symbol });
