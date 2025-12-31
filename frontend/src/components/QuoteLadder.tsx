@@ -139,7 +139,7 @@ export function QuoteLadder({ token }: QuoteLadderProps) {
     );
   }
 
-  if (!data || data.quotes.length === 0) {
+  if (!data || !data.quotes || data.quotes.length === 0) {
     return (
       <div className="rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
