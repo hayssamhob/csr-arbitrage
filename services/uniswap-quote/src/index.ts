@@ -1,26 +1,31 @@
-import { BigNumber, constants, providers, utils } from "ethers";
+import { BigNumber, Contract, constants, providers, utils } from "ethers";
 import Redis from "ioredis";
 import { v4 as uuidv4 } from "uuid";
 import { CONTRACTS, config as serviceConfig } from "./config";
 
 // ==========================================================================
-// Uniswap V4 Quote Service with Pool Discovery & Validation
-// Checks pools mapping directly, then calculates price from sqrtPriceX96
+// Uniswap V4 Quote Service with Dynamic Pool Discovery
+// Uses getSlot0(poolId) to find active pools and calculates price from sqrtPriceX96
 // ==========================================================================
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const TOPIC_MARKET_DATA = "market.data";
 
-// extsload function selector: keccak256("extsload(bytes32)")[:4] = 0x1e2eaeaf
-const EXTSLOAD_SELECTOR = "0x1e2eaeaf";
+// Pool discovery configuration - common Uniswap V4 parameters
+const FEES = [500, 3000, 10000]; // 0.05%, 0.3%, 1%
+const TICK_SPACINGS = [10, 60, 200];
+const HOOKS_ADDRESS = constants.AddressZero; // Try address(0) first
 
-// Storage slot 6 is where pools mapping lives in PoolManager
-const POOLS_SLOT = 6;
+// StateView ABI for getSlot0 - the proper way to read V4 pool state
+const STATE_VIEW_ABI = [
+  "function getSlot0(bytes32 poolId) external view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)",
+];
 
-// Standard V4 tick spacings to search
-const TICK_SPACINGS = [60, 10, 200, 1];
-const FEE_TIERS = [3000, 500, 10000, 100];
+// V4 Quoter ABI for quoteExactInputSingle
+const QUOTER_ABI = [
+  "function quoteExactInputSingle((address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks, bool zeroForOne, uint128 amountIn, bytes hookData)) external returns (uint256 amountOut, uint256 gasEstimate)",
+];
 
 // Token definitions with decimals
 const TOKENS = {
@@ -64,16 +69,6 @@ function computePoolId(
   return utils.keccak256(encoded);
 }
 
-// Calculate storage slot for a pool's Slot0 data
-function getPoolStateSlot(poolId: string): string {
-  // pools mapping slot = keccak256(poolId . POOLS_SLOT)
-  const encoded = utils.defaultAbiCoder.encode(
-    ["bytes32", "uint256"],
-    [poolId, POOLS_SLOT]
-  );
-  return utils.keccak256(encoded);
-}
-
 // Calculate price from sqrtPriceX96
 // sqrtPriceX96 = sqrt(price) * 2^96 where price = token1/token0
 function sqrtPriceX96ToPrice(
@@ -98,6 +93,16 @@ function sqrtPriceX96ToPrice(
 const provider = new providers.JsonRpcProvider(serviceConfig.RPC_URL);
 const redis = new Redis(serviceConfig.REDIS_URL);
 
+// StateView contract for getSlot0 calls
+const stateView = new Contract(
+  CONTRACTS.UNISWAP_V4_MANAGER,
+  STATE_VIEW_ABI,
+  provider
+);
+
+// Quoter contract for price quotes
+const quoter = new Contract(CONTRACTS.UNISWAP_V4_QUOTER, QUOTER_ABI, provider);
+
 // Pool state from on-chain
 interface PoolState {
   sqrtPriceX96: BigNumber;
@@ -106,7 +111,7 @@ interface PoolState {
   lpFee: number;
 }
 
-// Validated pool info
+// Validated pool info (discovered pool key)
 interface ValidatedPool {
   symbol: "CSR" | "CSR25";
   poolId: string;
@@ -117,48 +122,29 @@ interface ValidatedPool {
   hooks: string;
   token0Decimals: number;
   token1Decimals: number;
-  state: PoolState;
 }
 
 // Cache for discovered pools
 const discoveredPools: Map<string, ValidatedPool> = new Map();
 
-// Read pool state from PoolManager using eth_getStorageAt
-async function readPoolState(poolId: string): Promise<PoolState | null> {
+// Read pool state using PoolManager.getSlot0(poolId)
+async function getSlot0(poolId: string): Promise<PoolState | null> {
   try {
-    const stateSlot = getPoolStateSlot(poolId);
+    const result = await stateView.callStatic.getSlot0(poolId);
+    const sqrtPriceX96 = BigNumber.from(result.sqrtPriceX96);
 
-    // Use eth_getStorageAt to read the slot directly
-    const slot0Data = await provider.getStorageAt(
-      CONTRACTS.UNISWAP_V4_MANAGER,
-      stateSlot
-    );
-
-    if (
-      slot0Data ===
-      "0x0000000000000000000000000000000000000000000000000000000000000000"
-    ) {
+    if (sqrtPriceX96.isZero()) {
       return null;
     }
 
-    // Parse packed Slot0 data
-    // Layout: sqrtPriceX96 (160 bits) | tick (24 bits) | protocolFee (24 bits) | lpFee (24 bits)
-    const slot0Bn = BigNumber.from(slot0Data);
-    const sqrtPriceX96 = slot0Bn.mask(160); // Lower 160 bits
-    const tick = slot0Bn.shr(160).mask(24).toNumber();
-    const protocolFee = slot0Bn.shr(184).mask(24).toNumber();
-    const lpFee = slot0Bn.shr(208).mask(24).toNumber();
-
-    // Handle signed tick (24-bit signed integer)
-    const signedTick = tick > 0x7fffff ? tick - 0x1000000 : tick;
-
-    return { sqrtPriceX96, tick: signedTick, protocolFee, lpFee };
+    return {
+      sqrtPriceX96,
+      tick: result.tick,
+      protocolFee: result.protocolFee,
+      lpFee: result.lpFee,
+    };
   } catch (err: any) {
-    console.error(
-      `[Quote] getStorageAt failed for ${poolId.slice(0, 18)}...: ${
-        err.message
-      }`
-    );
+    // Pool doesn't exist or call reverted
     return null;
   }
 }
@@ -193,7 +179,7 @@ async function discoverPool(
     console.log(
       `[Quote]   Checking provided ID: ${providedPoolId.slice(0, 18)}...`
     );
-    const state = await readPoolState(providedPoolId);
+    const state = await getSlot0(providedPoolId);
     if (state && !state.sqrtPriceX96.isZero()) {
       console.log(
         `[Quote]   ✓ Pool found with provided ID! sqrtPriceX96=${state.sqrtPriceX96
@@ -210,7 +196,6 @@ async function discoverPool(
         hooks: constants.AddressZero,
         token0Decimals,
         token1Decimals,
-        state,
       };
       discoveredPools.set(symbol, pool);
       return pool;
@@ -221,11 +206,11 @@ async function discoverPool(
   // Dynamic search through fee/tickSpacing combinations
   console.log(
     `[Quote]   Searching through ${
-      FEE_TIERS.length * TICK_SPACINGS.length
+      FEES.length * TICK_SPACINGS.length
     } combinations...`
   );
 
-  for (const fee of FEE_TIERS) {
+  for (const fee of FEES) {
     for (const tickSpacing of TICK_SPACINGS) {
       const poolId = computePoolId(
         currency0,
@@ -234,7 +219,7 @@ async function discoverPool(
         tickSpacing,
         constants.AddressZero
       );
-      const state = await readPoolState(poolId);
+      const state = await getSlot0(poolId);
 
       if (state && !state.sqrtPriceX96.isZero()) {
         console.log(
@@ -257,7 +242,6 @@ async function discoverPool(
           hooks: constants.AddressZero,
           token0Decimals,
           token1Decimals,
-          state,
         };
         discoveredPools.set(symbol, pool);
         return pool;
@@ -293,7 +277,7 @@ async function fetchQuote(
   }
 
   // Re-read current state (pool discovery caches the structure, but we want fresh price)
-  const state = await readPoolState(pool.poolId);
+  const state = await getSlot0(pool.poolId);
   if (!state || state.sqrtPriceX96.isZero()) {
     console.warn(`[Quote] Pool ${symbol} state read failed`);
     discoveredPools.delete(symbol); // Clear cache to retry discovery
