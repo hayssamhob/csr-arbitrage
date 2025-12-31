@@ -116,11 +116,12 @@ export function loadConfig(): Config {
   };
 }
 
-// Contract addresses for reference (verified mainnet)
+// Contract addresses for reference (verified mainnet from docs.uniswap.org/contracts/v4/deployments)
 export const CONTRACTS = {
-  // Official Uniswap V4 PoolManager - DO NOT CHANGE
-  UNISWAP_V4_MANAGER: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-  UNISWAP_V4_QUOTER: "0xC80ce120748030f537b98909F1A6A1b80a6478A7",
+  // Official Uniswap V4 contracts on Ethereum mainnet
+  UNISWAP_V4_MANAGER: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+  UNISWAP_V4_STATE_VIEW: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227",
+  UNISWAP_V4_QUOTER: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
   // Token addresses (checksummed)
   CSR_TOKEN: "0x75Ecb52e403C617679FBd3e77A50f9d10A842387",
   CSR25_TOKEN: "0x502E7230E142A332DFEd1095F7174834b2548982",

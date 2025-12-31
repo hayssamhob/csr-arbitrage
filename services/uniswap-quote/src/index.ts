@@ -93,9 +93,9 @@ function sqrtPriceX96ToPrice(
 const provider = new providers.JsonRpcProvider(serviceConfig.RPC_URL);
 const redis = new Redis(serviceConfig.REDIS_URL);
 
-// StateView contract for getSlot0 calls
+// StateView contract for getSlot0 calls (separate from PoolManager)
 const stateView = new Contract(
-  CONTRACTS.UNISWAP_V4_MANAGER,
+  CONTRACTS.UNISWAP_V4_STATE_VIEW,
   STATE_VIEW_ABI,
   provider
 );
