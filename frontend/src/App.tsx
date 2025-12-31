@@ -358,321 +358,316 @@ function App() {
       consecutiveFailures: 0,
     },
   };
-  setScraperData(transformed);
-  console.log("Using database fallback for DEX quotes");
-}
-        } catch (fallbackError) {
-  console.error("Fallback quotes also failed:", fallbackError);
-}
-      }
-    }
-fetchScraperQuotes();
-const interval = setInterval(fetchScraperQuotes, 5000);
-return () => clearInterval(interval);
+  // Scraper polling removed in Redis architecture
+  useEffect(() => {
+    setScraperData({
+      quotes: [],
+      meta: { lastSuccessTs: Date.now(), errorsLast5m: 0 }
+    });
   }, []);
 
-// Fetch alignment data from backend - AUTHORITATIVE source for required trade sizes
-useEffect(() => {
-  async function fetchAlignment() {
-    try {
-      const resp = await fetch(`${API_URL}/api/alignment`);
-      if (resp.ok) {
-        const alignmentJson = await resp.json();
-        setAlignmentData(alignmentJson);
-      }
-    } catch (e) {
-      console.error("Failed to fetch alignment:", e);
-    }
-  }
-  fetchAlignment();
-  const interval = setInterval(fetchAlignment, 3000);
-  return () => clearInterval(interval);
-}, []);
-
-// Fetch initial data
-useEffect(() => {
-  async function fetchInitialData() {
-    try {
-      const resp = await fetch(`${API_URL}/api/dashboard`);
-      if (resp.ok) {
-        const initialData = await resp.json();
-        setData(initialData);
-        setLastUpdate(new Date());
-      }
-    } catch {
-      console.error("Failed to fetch initial data");
-    }
-  }
-  fetchInitialData();
-}, []);
-
-// WebSocket connection
-useEffect(() => {
-  let ws: WebSocket | null = null;
-  function connect() {
-    ws = new WebSocket(getWsUrl());
-    ws.onopen = () => setError(null);
-    ws.onmessage = (event) => {
+  // Fetch alignment data from backend - AUTHORITATIVE source for required trade sizes
+  useEffect(() => {
+    async function fetchAlignment() {
       try {
-        const parsed = JSON.parse(event.data);
-        setData(parsed);
-        setLastUpdate(new Date());
-      } catch {
-        console.error("Failed to parse WS message");
+        const resp = await fetch(`${API_URL}/api/alignment`);
+        if (resp.ok) {
+          const alignmentJson = await resp.json();
+          setAlignmentData(alignmentJson);
+        }
+      } catch (e) {
+        console.error("Failed to fetch alignment:", e);
       }
-    };
-    ws.onerror = () => setError("WebSocket error");
-    ws.onclose = () => {
-      setError("Connection lost");
-      setTimeout(connect, 3000);
-    };
-  }
-  connect();
-  return () => {
-    ws?.close();
-  };
-}, []);
+    }
+    fetchAlignment();
+    const interval = setInterval(fetchAlignment, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
-// Polling fallback
-useEffect(() => {
-  if (error) {
-    const interval = setInterval(async () => {
+  // Fetch initial data
+  useEffect(() => {
+    async function fetchInitialData() {
       try {
         const resp = await fetch(`${API_URL}/api/dashboard`);
         if (resp.ok) {
-          const newData = await resp.json();
-          setData(newData);
+          const initialData = await resp.json();
+          setData(initialData);
           setLastUpdate(new Date());
-          setError(null);
         }
       } catch {
-        console.error("Polling failed");
+        console.error("Failed to fetch initial data");
       }
-    }, 2000);
-    return () => clearInterval(interval);
-  }
-}, [error]);
+    }
+    fetchInitialData();
+  }, []);
 
-// Local mode state
-const [pageMode, setPageMode] = useState<"PAPER" | "MANUAL" | "AUTO">(
-  "MANUAL"
-);
-const [killSwitch, setKillSwitch] = useState(false);
+  // WebSocket connection
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    function connect() {
+      ws = new WebSocket(getWsUrl());
+      ws.onopen = () => setError(null);
+      ws.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          setData(parsed);
+          setLastUpdate(new Date());
+        } catch {
+          console.error("Failed to parse WS message");
+        }
+      };
+      ws.onerror = () => setError("WebSocket error");
+      ws.onclose = () => {
+        setError("Connection lost");
+        setTimeout(connect, 3000);
+      };
+    }
+    connect();
+    return () => {
+      ws?.close();
+    };
+  }, []);
 
-const handleModeChange = (newMode: "PAPER" | "MANUAL" | "AUTO") => {
-  if (newMode === "AUTO" && killSwitch) {
-    alert("Cannot enable AUTO mode while kill switch is active");
-    return;
-  }
-  setPageMode(newMode);
-};
+  // Polling fallback
+  useEffect(() => {
+    if (error) {
+      const interval = setInterval(async () => {
+        try {
+          const resp = await fetch(`${API_URL}/api/dashboard`);
+          if (resp.ok) {
+            const newData = await resp.json();
+            setData(newData);
+            setLastUpdate(new Date());
+            setError(null);
+          }
+        } catch {
+          console.error("Polling failed");
+        }
+      }, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [error]);
 
-// Map page mode to alignment execution mode
-const alignmentExecutionMode: "OFF" | "MANUAL" | "AUTO" =
-  pageMode === "PAPER" ? "OFF" : pageMode;
+  // Local mode state
+  const [pageMode, setPageMode] = useState<"PAPER" | "MANUAL" | "AUTO">(
+    "MANUAL"
+  );
+  const [killSwitch, setKillSwitch] = useState(false);
 
-return (
-  <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-emerald-500/30">
-    {/* Background Decorative Elements */}
-    <div className="fixed inset-0 overflow-hidden pointer-events-none">
-      <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full animate-pulse"></div>
-      <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] bg-blue-900/10 blur-[100px] rounded-full"></div>
-      <div className="absolute -bottom-[10%] left-[20%] w-[35%] h-[35%] bg-cyan-900/10 blur-[110px] rounded-full"></div>
-    </div>
+  const handleModeChange = (newMode: "PAPER" | "MANUAL" | "AUTO") => {
+    if (newMode === "AUTO" && killSwitch) {
+      alert("Cannot enable AUTO mode while kill switch is active");
+      return;
+    }
+    setPageMode(newMode);
+  };
 
-    <div className="relative max-w-7xl mx-auto px-4 py-8 space-y-8">
-      {/* Header Section */}
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
-            <h2 className="text-sm font-black uppercase tracking-[0.3em] text-emerald-500/80">
-              Live Monitoring
-            </h2>
+  // Map page mode to alignment execution mode
+  const alignmentExecutionMode: "OFF" | "MANUAL" | "AUTO" =
+    pageMode === "PAPER" ? "OFF" : pageMode;
+
+  return (
+    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-emerald-500/30">
+      {/* Background Decorative Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full animate-pulse"></div>
+        <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] bg-blue-900/10 blur-[100px] rounded-full"></div>
+        <div className="absolute -bottom-[10%] left-[20%] w-[35%] h-[35%] bg-cyan-900/10 blur-[110px] rounded-full"></div>
+      </div>
+
+      <div className="relative max-w-7xl mx-auto px-4 py-8 space-y-8">
+        {/* Header Section */}
+        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+              <h2 className="text-sm font-black uppercase tracking-[0.3em] text-emerald-500/80">
+                Live Monitoring
+              </h2>
+            </div>
+            <h1 className="text-4xl font-black text-white tracking-tight">
+              Market <span className="text-slate-500">Alignment</span>
+            </h1>
           </div>
-          <h1 className="text-4xl font-black text-white tracking-tight">
-            Market <span className="text-slate-500">Alignment</span>
-          </h1>
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 bg-slate-900/50 backdrop-blur-sm border border-slate-800/50 rounded-xl p-1 shadow-inner">
-            {(["PAPER", "MANUAL", "AUTO"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => handleModeChange(m)}
-                disabled={m === "AUTO"}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${pageMode === m
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1 bg-slate-900/50 backdrop-blur-sm border border-slate-800/50 rounded-xl p-1 shadow-inner">
+              {(["PAPER", "MANUAL", "AUTO"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => handleModeChange(m)}
+                  disabled={m === "AUTO"}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${pageMode === m
                     ? m === "PAPER"
                       ? "bg-amber-500 text-white shadow-lg shadow-amber-900/20"
                       : m === "MANUAL"
                         ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20"
                         : "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20"
                     : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
-                  } ${m === "AUTO" ? "opacity-30 cursor-not-allowed" : ""}`}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+                    } ${m === "AUTO" ? "opacity-30 cursor-not-allowed" : ""}`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
 
-          <button
-            onClick={() => setKillSwitch(!killSwitch)}
-            className={`px-5 py-2 text-xs font-black rounded-xl border transition-all duration-300 ${killSwitch
+            <button
+              onClick={() => setKillSwitch(!killSwitch)}
+              className={`px-5 py-2 text-xs font-black rounded-xl border transition-all duration-300 ${killSwitch
                 ? "bg-red-500/10 border-red-500/50 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] animate-pulse"
                 : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-500"
-              }`}
-          >
-            {killSwitch ? "🛑 EMERGENCY STOP" : "🟢 SYSTEM ACTIVE"}
-          </button>
-        </div>
-      </header>
+                }`}
+            >
+              {killSwitch ? "🛑 EMERGENCY STOP" : "🟢 SYSTEM ACTIVE"}
+            </button>
+          </div>
+        </header>
 
-      {/* Global Status Bar - service health indicators */}
-      <div className="bg-slate-900/40 backdrop-blur-md rounded-2xl border border-slate-800/50 p-4 shadow-xl">
-        <GlobalStatusBar services={services} lastDataUpdate={lastUpdate} />
+        {/* Global Status Bar - service health indicators */}
+        <div className="bg-slate-900/40 backdrop-blur-md rounded-2xl border border-slate-800/50 p-4 shadow-xl">
+          <GlobalStatusBar services={services} lastDataUpdate={lastUpdate} />
+        </div>
+
+        {/* Dual Token Display - CSR25 and CSR side by side */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* CSR25 Column */}
+          <div className="space-y-6">
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-1 shadow-2xl overflow-hidden">
+              <AlignmentDisplay
+                token="CSR25"
+                alignment={alignmentData?.csr25_usdt ?? null}
+                onExecute={handleAlignmentExecute}
+                executionMode={alignmentExecutionMode}
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl hover:border-slate-700/50 transition-colors">
+              <MarketContextCard
+                token="CSR25"
+                cexData={
+                  data?.market_state?.csr25_usdt?.lbank_ticker
+                    ? {
+                      bid: data.market_state.csr25_usdt.lbank_ticker.bid,
+                      ask: data.market_state.csr25_usdt.lbank_ticker.ask,
+                      last: data.market_state.csr25_usdt.lbank_ticker.last,
+                      volume24h:
+                        data.market_state.csr25_usdt.lbank_ticker.volume_24h,
+                      source: "LBANK",
+                      timestamp: timeAgo(
+                        data.market_state.csr25_usdt.lbank_ticker.ts
+                      ),
+                    }
+                    : null
+                }
+                dexData={
+                  data?.market_state?.csr25_usdt?.uniswap_quote
+                    ? {
+                      executionPrice:
+                        data.market_state.csr25_usdt.uniswap_quote
+                          .effective_price_usdt,
+                      gasEstimateUsdt: 0.01,
+                      quoteSize: 100,
+                      source: "Uniswap",
+                      timestamp: timeAgo(
+                        data.market_state.csr25_usdt.uniswap_quote.ts
+                      ),
+                    }
+                    : null
+                }
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl overflow-hidden hover:border-slate-700/50 transition-colors">
+              <QuoteLadder token="CSR25" />
+            </div>
+          </div>
+
+          {/* CSR Column */}
+          <div className="space-y-6">
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-1 shadow-2xl overflow-hidden">
+              <AlignmentDisplay
+                token="CSR"
+                alignment={alignmentData?.csr_usdt ?? null}
+                onExecute={handleAlignmentExecute}
+                executionMode={alignmentExecutionMode}
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl hover:border-slate-700/50 transition-colors">
+              <MarketContextCard
+                token="CSR"
+                cexData={
+                  data?.market_state?.csr_usdt?.latoken_ticker
+                    ? {
+                      bid: data.market_state.csr_usdt.latoken_ticker.bid,
+                      ask: data.market_state.csr_usdt.latoken_ticker.ask,
+                      last: data.market_state.csr_usdt.latoken_ticker.last,
+                      volume24h:
+                        data.market_state.csr_usdt.latoken_ticker
+                          .volume_24h || 0,
+                      source: "LATOKEN",
+                      timestamp: timeAgo(
+                        data.market_state.csr_usdt.latoken_ticker.ts
+                      ),
+                    }
+                    : null
+                }
+                dexData={
+                  data?.market_state?.csr_usdt?.uniswap_quote
+                    ? {
+                      executionPrice:
+                        data.market_state.csr_usdt.uniswap_quote
+                          .effective_price_usdt,
+                      gasEstimateUsdt: 0.01,
+                      quoteSize: 100,
+                      source: "Uniswap",
+                      timestamp: timeAgo(
+                        data.market_state.csr_usdt.uniswap_quote.ts
+                      ),
+                    }
+                    : null
+                }
+              />
+            </div>
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl overflow-hidden hover:border-slate-700/50 transition-colors">
+              <QuoteLadder token="CSR" />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="text-center text-slate-600 text-xs py-12 border-t border-slate-900">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <img
+              src="/depollute-logo-256.png"
+              alt="CSR"
+              className="h-6 w-6 grayscale opacity-20"
+            />
+            <span className="font-black tracking-widest uppercase opacity-30">
+              Security Protocol Protected
+            </span>
+          </div>
+          <p>© 2025 Depollute Now • All systems operational</p>
+        </footer>
       </div>
 
-      {/* Dual Token Display - CSR25 and CSR side by side */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* CSR25 Column */}
-        <div className="space-y-6">
-          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-1 shadow-2xl overflow-hidden">
-            <AlignmentDisplay
-              token="CSR25"
-              alignment={alignmentData?.csr25_usdt ?? null}
-              onExecute={handleAlignmentExecute}
-              executionMode={alignmentExecutionMode}
+      {/* Modals */}
+      {showTradePanel && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+            onClick={() => setShowTradePanel(null)}
+          ></div>
+          <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-200">
+            <UniswapTradePanel
+              token={showTradePanel.token}
+              dexPrice={showTradePanel.dexPrice}
+              cexPrice={showTradePanel.cexPrice}
+              direction={showTradePanel.direction}
+              onClose={() => setShowTradePanel(null)}
             />
-          </div>
-          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl hover:border-slate-700/50 transition-colors">
-            <MarketContextCard
-              token="CSR25"
-              cexData={
-                data?.market_state?.csr25_usdt?.lbank_ticker
-                  ? {
-                    bid: data.market_state.csr25_usdt.lbank_ticker.bid,
-                    ask: data.market_state.csr25_usdt.lbank_ticker.ask,
-                    last: data.market_state.csr25_usdt.lbank_ticker.last,
-                    volume24h:
-                      data.market_state.csr25_usdt.lbank_ticker.volume_24h,
-                    source: "LBANK",
-                    timestamp: timeAgo(
-                      data.market_state.csr25_usdt.lbank_ticker.ts
-                    ),
-                  }
-                  : null
-              }
-              dexData={
-                data?.market_state?.csr25_usdt?.uniswap_quote
-                  ? {
-                    executionPrice:
-                      data.market_state.csr25_usdt.uniswap_quote
-                        .effective_price_usdt,
-                    gasEstimateUsdt: 0.01,
-                    quoteSize: 100,
-                    source: "Uniswap",
-                    timestamp: timeAgo(
-                      data.market_state.csr25_usdt.uniswap_quote.ts
-                    ),
-                  }
-                  : null
-              }
-            />
-          </div>
-          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl overflow-hidden hover:border-slate-700/50 transition-colors">
-            <QuoteLadder token="CSR25" />
           </div>
         </div>
-
-        {/* CSR Column */}
-        <div className="space-y-6">
-          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-1 shadow-2xl overflow-hidden">
-            <AlignmentDisplay
-              token="CSR"
-              alignment={alignmentData?.csr_usdt ?? null}
-              onExecute={handleAlignmentExecute}
-              executionMode={alignmentExecutionMode}
-            />
-          </div>
-          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl hover:border-slate-700/50 transition-colors">
-            <MarketContextCard
-              token="CSR"
-              cexData={
-                data?.market_state?.csr_usdt?.latoken_ticker
-                  ? {
-                    bid: data.market_state.csr_usdt.latoken_ticker.bid,
-                    ask: data.market_state.csr_usdt.latoken_ticker.ask,
-                    last: data.market_state.csr_usdt.latoken_ticker.last,
-                    volume24h:
-                      data.market_state.csr_usdt.latoken_ticker
-                        .volume_24h || 0,
-                    source: "LATOKEN",
-                    timestamp: timeAgo(
-                      data.market_state.csr_usdt.latoken_ticker.ts
-                    ),
-                  }
-                  : null
-              }
-              dexData={
-                data?.market_state?.csr_usdt?.uniswap_quote
-                  ? {
-                    executionPrice:
-                      data.market_state.csr_usdt.uniswap_quote
-                        .effective_price_usdt,
-                    gasEstimateUsdt: 0.01,
-                    quoteSize: 100,
-                    source: "Uniswap",
-                    timestamp: timeAgo(
-                      data.market_state.csr_usdt.uniswap_quote.ts
-                    ),
-                  }
-                  : null
-              }
-            />
-          </div>
-          <div className="bg-slate-900/40 backdrop-blur-xl rounded-3xl border border-slate-800/50 p-6 shadow-xl overflow-hidden hover:border-slate-700/50 transition-colors">
-            <QuoteLadder token="CSR" />
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <footer className="text-center text-slate-600 text-xs py-12 border-t border-slate-900">
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <img
-            src="/depollute-logo-256.png"
-            alt="CSR"
-            className="h-6 w-6 grayscale opacity-20"
-          />
-          <span className="font-black tracking-widest uppercase opacity-30">
-            Security Protocol Protected
-          </span>
-        </div>
-        <p>© 2025 Depollute Now • All systems operational</p>
-      </footer>
+      )}
     </div>
-
-    {/* Modals */}
-    {showTradePanel && (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div
-          className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
-          onClick={() => setShowTradePanel(null)}
-        ></div>
-        <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-200">
-          <UniswapTradePanel
-            token={showTradePanel.token}
-            dexPrice={showTradePanel.dexPrice}
-            cexPrice={showTradePanel.cexPrice}
-            direction={showTradePanel.direction}
-            onClose={() => setShowTradePanel(null)}
-          />
-        </div>
-      </div>
-    )}
-  </div>
-);
+  );
 }
 
 export default App;
