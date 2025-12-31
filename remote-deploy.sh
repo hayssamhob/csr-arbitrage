@@ -34,9 +34,23 @@ fi
 # BUT we are adding new env vars (REDIS_URL).
 # Strategy: We'll create a .env file for docker-compose based on what we know.
 
-echo -e "${YELLOW}📥 Fetching existing .env for RPC_URL...${NC}"
-# Try to grep RPC_URL from remote
-RPC_URL=$(ssh -i "$SSH_KEY" $SERVER_USER@$SERVER_IP "grep ETH_RPC_URL /root/csr-arbitrage-mvp/backend/.env | cut -d '=' -f2")
+echo -e "${YELLOW}📥 Fetching existing .env for critical credentials...${NC}"
+# Extract key variables from the legacy backend .env if strictly relevant
+REMOTE_ENV_PATH="/root/csr-arbitrage-mvp/backend/.env"
+VARS_TO_FETCH=("ETH_RPC_URL" "SUPABASE_URL" "SUPABASE_SERVICE_ROLE_KEY" "SUPABASE_JWT_SECRET" "PRIVATE_KEY")
+
+for VAR in "${VARS_TO_FETCH[@]}"; do
+    VAL=$(ssh -i "$SSH_KEY" $SERVER_USER@$SERVER_IP "grep $VAR $REMOTE_ENV_PATH | head -n 1 | cut -d '=' -f2-" | tr -d '\r')
+    if [ ! -z "$VAL" ]; then
+        echo "Found $VAR on remote."
+        # Map ETH_RPC_URL to RPC_URL for the new docker stack
+        if [ "$VAR" == "ETH_RPC_URL" ]; then
+            RPC_URL="$VAL"
+        else
+            eval "$VAR=\"$VAL\""
+        fi
+    fi
+done
 
 if [ -z "$RPC_URL" ]; then
     echo "⚠️  Could not fetch ETH_RPC_URL from remote. Using default public RPC."
@@ -56,6 +70,10 @@ echo "LOG_LEVEL=info" >> .env.deploy
 echo "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env.deploy
 echo "DB_PASSWORD=$DB_PASSWORD" >> .env.deploy
 echo "CEX_SECRETS_KEY=$CEX_SECRETS_KEY" >> .env.deploy
+echo "SUPABASE_URL=$SUPABASE_URL" >> .env.deploy
+echo "SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY" >> .env.deploy
+echo "SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET" >> .env.deploy
+echo "PRIVATE_KEY=$PRIVATE_KEY" >> .env.deploy
 
 echo -e "${YELLOW}📁 Creating remote directory...${NC}"
 ssh -i "$SSH_KEY" $SERVER_USER@$SERVER_IP "mkdir -p $REMOTE_DIR"

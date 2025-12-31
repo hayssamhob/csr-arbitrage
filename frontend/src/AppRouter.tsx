@@ -15,6 +15,7 @@ import { InventoryPage } from "./pages/InventoryPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { WalletProvider } from "./contexts/WalletContext";
 
 function Navigation() {
   const wallet = useWallet();
@@ -60,10 +61,9 @@ function Navigation() {
           <NavLink
             to="/alignment"
             className={({ isActive }) =>
-              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
-                isActive
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${isActive
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
@@ -73,10 +73,9 @@ function Navigation() {
           <NavLink
             to="/arbitrage"
             className={({ isActive }) =>
-              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
-                isActive
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${isActive
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
@@ -86,10 +85,9 @@ function Navigation() {
           <NavLink
             to="/inventory"
             className={({ isActive }) =>
-              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
-                isActive
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${isActive
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
@@ -99,10 +97,9 @@ function Navigation() {
           <NavLink
             to="/settings"
             className={({ isActive }) =>
-              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${
-                isActive
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+              `px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2.5 ${isActive
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
               }`
             }
           >
@@ -231,7 +228,9 @@ function AppContent() {
 export default function AppRouter() {
   return (
     <AuthProvider>
-      <AppContent />
+      <WalletProvider>
+        <AppContent />
+      </WalletProvider>
     </AuthProvider>
   );
 }
