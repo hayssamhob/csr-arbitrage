@@ -92,7 +92,7 @@ async function publishTick(symbol: string, data: any) {
     };
 
     try {
-        await redis.xadd(TOPIC_MARKET_DATA, '*', 'data', JSON.stringify(tick));
+        await redis.xadd(TOPIC_MARKET_DATA, '*', 'payload', JSON.stringify(tick));
         console.log(`[Quote] Published ${symbol} price: ${data.price.toFixed(6)}`);
     } catch (err) {
         console.error(`[Quote] Redis publish error:`, err);
