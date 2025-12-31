@@ -269,7 +269,9 @@ async function main() {
 
     // CSR25/USDT - LBank is CEX, Uniswap is DEX
     const csr25Lbank =
-      orderBook["csr25_usdt"]?.["lbank"] || orderBook["csr25/usdt"]?.["lbank"];
+      orderBook["csr25_usdt"]?.["lbank"] ||
+      orderBook["csr25/usdt"]?.["lbank"] ||
+      orderBook["CSR25/USDT"]?.["lbank"];
     const csr25Uniswap =
       orderBook["csr25_usdt"]?.["uniswap_v4"] ||
       orderBook["csr25/usdt"]?.["uniswap_v4"];

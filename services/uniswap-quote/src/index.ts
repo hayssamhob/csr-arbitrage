@@ -174,20 +174,23 @@ async function main() {
     if (redisPub.status !== "ready") return;
 
     const tick = {
-      type: "uniswap.quote",
+      type: "market.tick",
       eventId: uuidv4(),
       symbol,
       venue: "uniswap_v4",
-      ts: new Date().toISOString(),
-      effective_price_usdt: quote.price,
-      liquidity: quote.liquidity,
-      tick: quote.tick,
-      poolId: quote.poolId,
-      is_stale: false,
+      ts: Date.now(),
+      last: quote.price,
+      bid: quote.price,
+      ask: quote.price,
+      meta: {
+        liquidity: quote.liquidity,
+        tick: quote.tick,
+        poolId: quote.poolId,
+      },
     };
 
     try {
-      await redisPub.xadd("market:uniswap", "*", "data", JSON.stringify(tick));
+      await redisPub.xadd("market.data", "*", "data", JSON.stringify(tick));
       log("debug", "quote_published", { symbol, price: quote.price });
     } catch (err: any) {
       log("error", "publish_failed", { symbol, error: err.message });
