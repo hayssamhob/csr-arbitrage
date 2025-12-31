@@ -53,10 +53,9 @@ function getDexUrl(market: string): string {
   return urls[token] || "#";
 }
 
-// Staleness check - warn if data is older than threshold (30 seconds for CEX, 120 for DEX)
-// DEX has longer threshold since V4 quotes update less frequently
-const STALENESS_THRESHOLD_CEX_MS = 30000;
-const STALENESS_THRESHOLD_DEX_MS = 120000;
+// Staleness thresholds (kept for future use)
+// const STALENESS_THRESHOLD_CEX_MS = 30000;
+// const STALENESS_THRESHOLD_DEX_MS = 120000;
 
 // Traffic Light Edge Indicator Component
 // Red: Negative or below threshold, Yellow: Near threshold, Green: Profitable
@@ -87,16 +86,16 @@ function EdgeTrafficLight({ edgeBps, minEdgeBps = 50 }: { edgeBps: number; minEd
   );
 }
 
-function isDataStale(ts: string | undefined, thresholdMs: number): boolean {
-  if (!ts) return true;
-  const age = Date.now() - new Date(ts).getTime();
-  return age > thresholdMs;
-}
-
-function getDataAge(ts: string | undefined): number {
-  if (!ts) return 999;
-  return Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-}
+// Staleness helpers (kept for future use)
+// function isDataStale(ts: string | undefined, thresholdMs: number): boolean {
+//   if (!ts) return true;
+//   const age = Date.now() - new Date(ts).getTime();
+//   return age > thresholdMs;
+// }
+// function getDataAge(ts: string | undefined): number {
+//   if (!ts) return 999;
+//   return Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+// }
 
 // Tooltip component for ArbitragePage
 function Tooltip({
