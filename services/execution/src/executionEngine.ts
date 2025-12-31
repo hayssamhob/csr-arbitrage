@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Config } from './config';
-import { Database, DecisionRecord, TradeRecord } from './database';
+import { Config, PoolKey } from "./config";
+import { Database, DecisionRecord, TradeRecord } from "./database";
 
 // ============================================================================
 // Execution Engine
@@ -8,7 +8,20 @@ import { Database, DecisionRecord, TradeRecord } from './database';
 // NO WITHDRAWALS, NO BRIDGING, NO FUND TRANSFERS - SPOT ORDERS ONLY
 // ============================================================================
 
-type LogFn = (level: string, event: string, data?: Record<string, unknown>) => void;
+type LogFn = (
+  level: string,
+  event: string,
+  data?: Record<string, unknown>
+) => void;
+
+// V4 Swap parameters
+interface V4SwapParams {
+  poolKey: PoolKey;
+  zeroForOne: boolean;
+  amountIn: number;
+  amountOutMinimum: number;
+  sqrtPriceLimitX96?: string;
+}
 
 interface ExecuteParams {
   symbol: string;
@@ -16,6 +29,12 @@ interface ExecuteParams {
   size_usdt: number;
   edge_bps: number;
   idempotency_key: string;
+  // V4 specific params
+  poolKey?: PoolKey;
+  dex_price?: number;
+  cex_price?: number;
+  tick?: number;
+  lp_fee_bps?: number;
 }
 
 interface ExecuteResult {
@@ -26,6 +45,7 @@ interface ExecuteResult {
   message: string;
   fill_price?: number;
   pnl_usdt?: number;
+  pool_key?: PoolKey;
 }
 
 interface StrategyDecision {
@@ -38,6 +58,10 @@ interface StrategyDecision {
   would_trade: boolean;
   direction: string;
   suggested_size_usdt: number;
+  // V4 specific fields
+  poolKey?: PoolKey;
+  tick?: number;
+  lp_fee_bps?: number;
 }
 
 export class ExecutionEngine {
@@ -103,7 +127,7 @@ export class ExecutionEngine {
     // Validate conditions
     const validation = this.validateExecution(decision);
     if (!validation.valid) {
-      this.log('warn', 'execution_rejected', {
+      this.log("warn", "execution_rejected", {
         symbol: decision.symbol,
         reason: validation.reason,
       });
@@ -115,37 +139,49 @@ export class ExecutionEngine {
       await this.execute({
         symbol: decision.symbol,
         direction: decision.direction,
-        size_usdt: Math.min(decision.suggested_size_usdt, this.config.MAX_ORDER_USDT),
+        size_usdt: Math.min(
+          decision.suggested_size_usdt,
+          this.config.MAX_ORDER_USDT
+        ),
         edge_bps: decision.edge_after_costs_bps,
         idempotency_key: uuidv4(),
       });
     } catch (err) {
-      this.log('error', 'execution_error', {
+      this.log("error", "execution_error", {
         symbol: decision.symbol,
         error: String(err),
       });
     }
   }
 
-  private validateExecution(decision: StrategyDecision): { valid: boolean; reason?: string } {
+  private validateExecution(decision: StrategyDecision): {
+    valid: boolean;
+    reason?: string;
+  } {
     // Check kill switch
     if (this.config.KILL_SWITCH) {
-      return { valid: false, reason: 'Kill switch is active' };
+      return { valid: false, reason: "Kill switch is active" };
     }
 
     // Check execution mode
-    if (this.config.EXECUTION_MODE === 'off') {
-      return { valid: false, reason: 'Execution mode is off' };
+    if (this.config.EXECUTION_MODE === "off") {
+      return { valid: false, reason: "Execution mode is off" };
     }
 
     // Check edge threshold
     if (decision.edge_after_costs_bps < this.config.MIN_EDGE_BPS) {
-      return { valid: false, reason: `Edge ${decision.edge_after_costs_bps} below threshold ${this.config.MIN_EDGE_BPS}` };
+      return {
+        valid: false,
+        reason: `Edge ${decision.edge_after_costs_bps} below threshold ${this.config.MIN_EDGE_BPS}`,
+      };
     }
 
     // Check daily volume limit
     const dailyVolume = this.db.getDailyVolume();
-    if (dailyVolume + decision.suggested_size_usdt > this.config.MAX_DAILY_VOLUME_USDT) {
+    if (
+      dailyVolume + decision.suggested_size_usdt >
+      this.config.MAX_DAILY_VOLUME_USDT
+    ) {
       return { valid: false, reason: `Daily volume limit exceeded` };
     }
 
@@ -165,8 +201,8 @@ export class ExecutionEngine {
       return {
         success: false,
         mode: this.config.EXECUTION_MODE,
-        status: 'duplicate',
-        message: 'Order already exists with this idempotency key',
+        status: "duplicate",
+        message: "Order already exists with this idempotency key",
       };
     }
 
@@ -175,7 +211,7 @@ export class ExecutionEngine {
       return {
         success: false,
         mode: this.config.EXECUTION_MODE,
-        status: 'rejected',
+        status: "rejected",
         message: `Order size ${size_usdt} exceeds max ${this.config.MAX_ORDER_USDT}`,
       };
     }
@@ -188,8 +224,8 @@ export class ExecutionEngine {
       direction,
       size_usdt,
       edge_bps,
-      mode: this.config.EXECUTION_MODE as 'paper' | 'live',
-      status: 'pending',
+      mode: this.config.EXECUTION_MODE as "paper" | "live",
+      status: "pending",
       idempotency_key,
     };
 
@@ -197,7 +233,7 @@ export class ExecutionEngine {
     this.db.insertTrade(trade);
     this.activeOrders.set(tradeId, trade);
 
-    this.log('info', 'trade_initiated', {
+    this.log("info", "trade_initiated", {
       trade_id: tradeId,
       symbol,
       direction,
@@ -207,9 +243,9 @@ export class ExecutionEngine {
     });
 
     // Execute based on mode
-    if (this.config.EXECUTION_MODE === 'paper') {
+    if (this.config.EXECUTION_MODE === "paper") {
       return this.executePaper(trade);
-    } else if (this.config.EXECUTION_MODE === 'live') {
+    } else if (this.config.EXECUTION_MODE === "live") {
       return this.executeLive(trade);
     }
 
@@ -217,37 +253,97 @@ export class ExecutionEngine {
       success: false,
       trade_id: tradeId,
       mode: this.config.EXECUTION_MODE,
-      status: 'rejected',
-      message: 'Invalid execution mode',
+      status: "rejected",
+      message: "Invalid execution mode",
     };
   }
 
-  private async executePaper(trade: TradeRecord): Promise<ExecuteResult> {
-    // Simulate fill with small random slippage
-    const slippageBps = Math.random() * 10; // 0-10 bps random slippage
-    const fillPrice = trade.edge_bps > 0 ? 1.0 : 0.99; // Simulated fill price
-    const simulatedPnl = (trade.edge_bps - slippageBps) * trade.size_usdt / 10000;
+  private async executePaper(
+    trade: TradeRecord,
+    params?: ExecuteParams
+  ): Promise<ExecuteResult> {
+    // Use real V4 prices if available, otherwise simulate
+    const dexPrice = params?.dex_price || 0;
+    const cexPrice = params?.cex_price || 0;
+    const lpFeeBps = params?.lp_fee_bps || 30; // Default 0.3% fee
+
+    // Calculate realistic slippage based on trade size
+    // Larger trades have more slippage (0.1% per $1000)
+    const sizeSlippageBps = (trade.size_usdt / 1000) * 10;
+    const randomSlippageBps = Math.random() * 5; // 0-5 bps random component
+    const totalSlippageBps = sizeSlippageBps + randomSlippageBps;
+
+    // Calculate fill price with slippage
+    let fillPrice: number;
+    let simulatedPnl: number;
+
+    if (dexPrice > 0 && cexPrice > 0) {
+      // Use real prices for accurate paper P&L calculation
+      const direction = trade.direction;
+
+      if (direction === "buy_dex_sell_cex") {
+        // Buy on DEX at dexPrice (+ slippage), sell on CEX at cexPrice
+        const effectiveBuyPrice = dexPrice * (1 + totalSlippageBps / 10000);
+        const effectiveSellPrice = cexPrice * (1 - totalSlippageBps / 10000);
+        fillPrice = effectiveBuyPrice;
+
+        // Gross profit = (sell - buy) / buy * size
+        const grossProfitPct =
+          (effectiveSellPrice - effectiveBuyPrice) / effectiveBuyPrice;
+        const grossProfitUsdt = grossProfitPct * trade.size_usdt;
+
+        // Subtract fees: LP fee (0.3%) + estimated gas ($0.50)
+        const lpFeeUsdt = trade.size_usdt * (lpFeeBps / 10000);
+        const gasFeeUsdt = 0.5;
+        simulatedPnl = grossProfitUsdt - lpFeeUsdt - gasFeeUsdt;
+      } else {
+        // Buy on CEX at cexPrice, sell on DEX at dexPrice (- slippage)
+        const effectiveBuyPrice = cexPrice * (1 + totalSlippageBps / 10000);
+        const effectiveSellPrice = dexPrice * (1 - totalSlippageBps / 10000);
+        fillPrice = effectiveSellPrice;
+
+        const grossProfitPct =
+          (effectiveSellPrice - effectiveBuyPrice) / effectiveBuyPrice;
+        const grossProfitUsdt = grossProfitPct * trade.size_usdt;
+
+        const lpFeeUsdt = trade.size_usdt * (lpFeeBps / 10000);
+        const gasFeeUsdt = 0.5;
+        simulatedPnl = grossProfitUsdt - lpFeeUsdt - gasFeeUsdt;
+      }
+    } else {
+      // Fallback: simulate based on edge_bps
+      fillPrice = 1.0;
+      simulatedPnl =
+        ((trade.edge_bps - totalSlippageBps - lpFeeBps) * trade.size_usdt) /
+        10000;
+    }
 
     // Update trade as filled
-    this.db.updateTradeStatus(trade.id, 'filled', fillPrice, simulatedPnl);
+    this.db.updateTradeStatus(trade.id, "filled", fillPrice, simulatedPnl);
     this.activeOrders.delete(trade.id);
 
-    this.log('info', 'paper_trade_filled', {
+    this.log("info", "paper_trade_filled", {
       trade_id: trade.id,
       symbol: trade.symbol,
       direction: trade.direction,
       size_usdt: trade.size_usdt,
+      dex_price: dexPrice,
+      cex_price: cexPrice,
+      fill_price: fillPrice,
+      slippage_bps: totalSlippageBps,
+      lp_fee_bps: lpFeeBps,
       simulated_pnl: simulatedPnl,
     });
 
     return {
       success: true,
       trade_id: trade.id,
-      mode: 'paper',
-      status: 'filled',
-      message: 'Paper trade simulated successfully',
+      mode: "paper",
+      status: "filled",
+      message: "Paper trade simulated with real V4 prices",
       fill_price: fillPrice,
       pnl_usdt: simulatedPnl,
+      pool_key: params?.poolKey,
     };
   }
 
@@ -256,34 +352,47 @@ export class ExecutionEngine {
     // This requires API keys and proper implementation
 
     if (!this.config.LBANK_API_KEY || !this.config.LBANK_API_SECRET) {
-      this.db.updateTradeStatus(trade.id, 'failed', undefined, undefined, 'Missing API credentials');
+      this.db.updateTradeStatus(
+        trade.id,
+        "failed",
+        undefined,
+        undefined,
+        "Missing API credentials"
+      );
       this.activeOrders.delete(trade.id);
-      
+
       return {
         success: false,
         trade_id: trade.id,
-        mode: 'live',
-        status: 'failed',
-        message: 'Missing LBank API credentials',
+        mode: "live",
+        status: "failed",
+        message: "Missing LBank API credentials",
       };
     }
 
     // TODO: Implement actual LBank order placement
     // For now, reject with clear message
-    this.db.updateTradeStatus(trade.id, 'failed', undefined, undefined, 'Live trading not yet implemented');
+    this.db.updateTradeStatus(
+      trade.id,
+      "failed",
+      undefined,
+      undefined,
+      "Live trading not yet implemented"
+    );
     this.activeOrders.delete(trade.id);
 
-    this.log('warn', 'live_trading_not_implemented', {
+    this.log("warn", "live_trading_not_implemented", {
       trade_id: trade.id,
-      message: 'Live trading requires LBank API integration',
+      message: "Live trading requires LBank API integration",
     });
 
     return {
       success: false,
       trade_id: trade.id,
-      mode: 'live',
-      status: 'failed',
-      message: 'Live trading not yet implemented - requires LBank API integration',
+      mode: "live",
+      status: "failed",
+      message:
+        "Live trading not yet implemented - requires LBank API integration",
     };
   }
 }

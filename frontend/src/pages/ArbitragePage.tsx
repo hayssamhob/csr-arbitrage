@@ -12,13 +12,13 @@
  * - Trade execution interface
  */
 
+import { Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AdvancedMetricsCard } from "../components/AdvancedMetricsCard";
+import { CustodialRiskModal } from "../components/CustodialRiskModal";
+import { EngineControl } from "../components/EngineControl";
 import { Footer } from "../components/Footer";
 import { useAuth } from "../contexts/AuthContext";
-import { EngineControl } from '../components/EngineControl';
-import { CustodialRiskModal } from '../components/CustodialRiskModal';
-import { Zap } from 'lucide-react';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -108,10 +108,11 @@ function ClickablePrice({
 
   const content = (
     <span
-      className={`font-mono ${className} ${href
-        ? "hover:text-emerald-400 cursor-pointer underline decoration-dotted underline-offset-2"
-        : ""
-        }`}
+      className={`font-mono ${className} ${
+        href
+          ? "hover:text-emerald-400 cursor-pointer underline decoration-dotted underline-offset-2"
+          : ""
+      }`}
     >
       ${formatPrice(price)}
     </span>
@@ -174,7 +175,8 @@ function TradeExecutionModal({
           `✅ PAPER TRADE: ${opportunity.direction.replace(
             /_/g,
             " "
-          )} $${tradeSize} of ${opportunity.market
+          )} $${tradeSize} of ${
+            opportunity.market
           }\nEstimated profit: $${estimatedEdgeUsd.toFixed(2)}`
         );
         onClose();
@@ -238,10 +240,11 @@ function TradeExecutionModal({
 
         alert(
           `✅ ARBITRAGE INITIATED!\n\n` +
-          `CEX BUY: ${cexResult.order.filled || tokenAmount.toFixed(2)
-          } ${token} on ${opportunity.cex_venue}\n` +
-          `Order ID: ${cexResult.order.id}\n\n` +
-          `DEX SELL: Uniswap opened in new tab - complete the swap to finish arbitrage!`
+            `CEX BUY: ${
+              cexResult.order.filled || tokenAmount.toFixed(2)
+            } ${token} on ${opportunity.cex_venue}\n` +
+            `Order ID: ${cexResult.order.id}\n\n` +
+            `DEX SELL: Uniswap opened in new tab - complete the swap to finish arbitrage!`
         );
       } else {
         // BUY_DEX_SELL_CEX: Buy on DEX, Sell on CEX
@@ -271,13 +274,14 @@ function TradeExecutionModal({
 
         alert(
           `✅ ARBITRAGE INITIATED!\n\n` +
-          `DEX BUY: Uniswap opened - buy ${tokenAmount.toFixed(
-            2
-          )} ${token}\n\n` +
-          `CEX SELL: Order placed for ${tokenAmount.toFixed(2)} ${token} on ${opportunity.cex_venue
-          }\n` +
-          `Order ID: ${cexResult.order.id}\n\n` +
-          `Complete the Uniswap swap to finish arbitrage!`
+            `DEX BUY: Uniswap opened - buy ${tokenAmount.toFixed(
+              2
+            )} ${token}\n\n` +
+            `CEX SELL: Order placed for ${tokenAmount.toFixed(2)} ${token} on ${
+              opportunity.cex_venue
+            }\n` +
+            `Order ID: ${cexResult.order.id}\n\n` +
+            `Complete the Uniswap swap to finish arbitrage!`
         );
       }
 
@@ -306,10 +310,11 @@ function TradeExecutionModal({
           <div className="flex justify-between items-center mb-2">
             <span className="text-lg font-bold">{opportunity.market}</span>
             <span
-              className={`px-2 py-1 rounded text-xs font-medium ${opportunity.direction === "BUY_DEX_SELL_CEX"
-                ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-blue-500/20 text-blue-400"
-                }`}
+              className={`px-2 py-1 rounded text-xs font-medium ${
+                opportunity.direction === "BUY_DEX_SELL_CEX"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : "bg-blue-500/20 text-blue-400"
+              }`}
             >
               {opportunity.direction.replace(/_/g, " ")}
             </span>
@@ -390,8 +395,9 @@ function TradeExecutionModal({
               </span>
             </Tooltip>
             <span
-              className={`font-mono ${estimatedPriceImpact > 1 ? "text-amber-400" : "text-slate-300"
-                }`}
+              className={`font-mono ${
+                estimatedPriceImpact > 1 ? "text-amber-400" : "text-slate-300"
+              }`}
             >
               {estimatedPriceImpact.toFixed(2)}%
             </span>
@@ -413,8 +419,9 @@ function TradeExecutionModal({
               </span>
             </Tooltip>
             <span
-              className={`font-mono font-bold ${estimatedEdgeUsd >= 0 ? "text-emerald-400" : "text-red-400"
-                }`}
+              className={`font-mono font-bold ${
+                estimatedEdgeUsd >= 0 ? "text-emerald-400" : "text-red-400"
+              }`}
             >
               ${estimatedEdgeUsd.toFixed(2)} ({estimatedEdgeBps > 0 ? "+" : ""}
               {estimatedEdgeBps} bps)
@@ -452,18 +459,19 @@ function TradeExecutionModal({
           <button
             onClick={handleExecute}
             disabled={isExecuting || estimatedEdgeUsd < 0}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${estimatedEdgeUsd < 0
-              ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-              : mode === "PAPER"
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
+              estimatedEdgeUsd < 0
+                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                : mode === "PAPER"
                 ? "bg-yellow-600 text-white hover:bg-yellow-500"
                 : "bg-emerald-600 text-white hover:bg-emerald-500"
-              }`}
+            }`}
           >
             {isExecuting
               ? "Executing..."
               : mode === "PAPER"
-                ? "Simulate Trade"
-                : "Execute Trade"}
+              ? "Simulate Trade"
+              : "Execute Trade"}
           </button>
         </div>
       </div>
@@ -491,6 +499,16 @@ interface Opportunity {
   reason: string;
 }
 
+// V4 Uniswap quote with tick and LP fee from StateView contract
+interface UniswapV4Quote {
+  effective_price_usdt: number;
+  ts: string;
+  tick?: number;
+  lp_fee_bps?: number;
+  sqrtPriceX96?: string;
+  source?: string;
+}
+
 interface DashboardData {
   market_state?: {
     csr_usdt?: {
@@ -501,10 +519,7 @@ interface DashboardData {
         volume_24h: number;
         ts: string;
       };
-      uniswap_quote?: {
-        effective_price_usdt: number;
-        ts: string;
-      };
+      uniswap_quote?: UniswapV4Quote;
       decision?: {
         edge_after_costs_bps: number;
         direction: string;
@@ -520,10 +535,7 @@ interface DashboardData {
         volume_24h: number;
         ts: string;
       };
-      uniswap_quote?: {
-        effective_price_usdt: number;
-        ts: string;
-      };
+      uniswap_quote?: UniswapV4Quote;
       decision?: {
         edge_after_costs_bps: number;
         direction: string;

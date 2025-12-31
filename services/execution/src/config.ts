@@ -5,6 +5,51 @@ import { z } from 'zod';
 // Supports OFF/PAPER/LIVE modes with strict safety controls
 // ============================================================================
 
+// Verified Uniswap V4 Contract Addresses (Ethereum Mainnet)
+// Source: https://docs.uniswap.org/contracts/v4/deployments
+export const UNISWAP_V4_ADDRESSES = {
+  POOL_MANAGER: '0x000000000004444c5dc75cB358380D2e3dE08A90',
+  STATE_VIEW: '0x7ffe42c4a5deea5b0fec41c94c136cf115597227',
+  QUOTER: '0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203',
+  UNIVERSAL_ROUTER: '0x66a9893cc07d91d95644aedd05d03f95e1dba8af',
+  PERMIT2: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
+};
+
+// Token addresses for CSR/CSR25 pools
+export const TOKEN_ADDRESSES = {
+  CSR: '0x75Ecb52e403C617679FBd3e77A50f9d10A842387',
+  CSR25: '0x502E7230E142A332DFEd1095F7174834b2548982',
+  USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+};
+
+// V4 Pool parameters (discovered by quote service)
+export interface PoolKey {
+  currency0: string;
+  currency1: string;
+  fee: number;
+  tickSpacing: number;
+  hooks: string;
+}
+
+// Default pool configurations
+export const DEFAULT_POOL_CONFIGS: Record<string, PoolKey> = {
+  CSR_USDT: {
+    currency0: TOKEN_ADDRESSES.CSR,
+    currency1: TOKEN_ADDRESSES.USDT,
+    fee: 3000,        // 0.3%
+    tickSpacing: 60,
+    hooks: '0x0000000000000000000000000000000000000000',
+  },
+  CSR25_USDT: {
+    currency0: TOKEN_ADDRESSES.CSR25,
+    currency1: TOKEN_ADDRESSES.USDT,
+    fee: 3000,        // 0.3%
+    tickSpacing: 60,
+    hooks: '0x0000000000000000000000000000000000000000',
+  },
+};
+
 const ConfigSchema = z.object({
   // Execution mode: off (monitoring), paper (simulate), live (real orders)
   EXECUTION_MODE: z.enum(['off', 'paper', 'live']).default('off'),

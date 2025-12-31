@@ -60,6 +60,10 @@ export const UniswapQuoteResultSchema = z.object({
   validated: z.boolean().optional(),
   source: z.string().optional(),
   error: z.string().optional(),
+  // V4-specific fields from StateView contract
+  tick: z.number().optional(),
+  lp_fee_bps: z.number().optional(),
+  sqrtPriceX96: z.string().optional(),
 });
 
 export type UniswapQuoteResult = z.infer<typeof UniswapQuoteResultSchema>;

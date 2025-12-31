@@ -280,6 +280,56 @@ export class StrategyEngine {
     this.onDecision(decision);
   }
 
+  // Calculate RealTimeEdge using live V4 data (tick, lp_fee_bps)
+  calculateRealTimeEdge(
+    cexPrice: number,
+    dexPrice: number,
+    lpFeeBps: number,
+    gasCostUsdt: number,
+    tradeSizeUsdt: number
+  ): {
+    edgeBps: number;
+    netProfitUsdt: number;
+    breakdown: Record<string, number>;
+  } {
+    // Raw spread in basis points
+    const rawSpreadBps = ((cexPrice - dexPrice) / dexPrice) * 10000;
+
+    // Use actual LP fee from V4 pool (e.g., 3000 = 0.3%)
+    const actualLpFeeBps = lpFeeBps / 10; // Convert from bps*10 to bps
+
+    // Gas cost as percentage of trade
+    const gasCostBps = (gasCostUsdt / tradeSizeUsdt) * 10000;
+
+    // CEX fee (typically 0.1%)
+    const cexFeeBps = this.config.CEX_TRADING_FEE_BPS;
+
+    // Slippage estimate (based on size)
+    const slippageBps = Math.min((tradeSizeUsdt / 1000) * 5, 50); // 5bps per $1000, max 50bps
+
+    // Total costs
+    const totalCostBps = actualLpFeeBps + gasCostBps + cexFeeBps + slippageBps;
+
+    // Net edge after all costs
+    const edgeBps = rawSpreadBps - totalCostBps;
+
+    // Net profit in USDT
+    const netProfitUsdt = (edgeBps / 10000) * tradeSizeUsdt;
+
+    return {
+      edgeBps: Math.round(edgeBps * 100) / 100,
+      netProfitUsdt: Math.round(netProfitUsdt * 100) / 100,
+      breakdown: {
+        raw_spread_bps: Math.round(rawSpreadBps * 100) / 100,
+        lp_fee_bps: actualLpFeeBps,
+        gas_cost_bps: Math.round(gasCostBps * 100) / 100,
+        cex_fee_bps: cexFeeBps,
+        slippage_bps: Math.round(slippageBps * 100) / 100,
+        total_cost_bps: Math.round(totalCostBps * 100) / 100,
+      },
+    };
+  }
+
   private calculateDecision(
     ticker: CexTickerEvent,
     quote: UniswapQuoteResult
@@ -289,6 +339,11 @@ export class StrategyEngine {
     const cexBid = ticker.bid;
     const cexAsk = ticker.ask;
     const cexSource = ticker.type === "lbank.ticker" ? "lbank" : "latoken";
+
+    // Use real LP fee from V4 quote if available (in bps * 10, e.g., 3000 = 0.3%)
+    const realLpFeeBps = quote.lp_fee_bps
+      ? quote.lp_fee_bps / 10
+      : this.config.DEX_LP_FEE_BPS;
 
     // Calculate spreads in basis points
     // Scenario 1: Buy on CEX (at ask), sell on DEX
@@ -313,12 +368,12 @@ export class StrategyEngine {
       direction = "none";
     }
 
-    // Calculate detailed costs
+    // Calculate detailed costs using real V4 data
     // 1. CEX trading fee (one side of the trade)
     const cexFeeBps = this.config.CEX_TRADING_FEE_BPS;
 
-    // 2. DEX LP fee (Uniswap pool fee)
-    const dexFeeBps = this.config.DEX_LP_FEE_BPS;
+    // 2. DEX LP fee - use real fee from V4 quote
+    const dexFeeBps = realLpFeeBps;
 
     // 3. Gas cost - use real-time from quote if available, else config default
     const realTimeGasCostUsdt =
@@ -338,13 +393,15 @@ export class StrategyEngine {
     const estimatedCostBps =
       cexFeeBps + dexFeeBps + gasCostBps + rebalanceBps + slippageBps;
 
-    // Cost breakdown for transparency
+    // Cost breakdown for transparency (includes real V4 data)
     const costBreakdown = {
       cex_fee_bps: Math.round(cexFeeBps * 100) / 100,
       dex_lp_fee_bps: Math.round(dexFeeBps * 100) / 100,
       gas_cost_bps: Math.round(gasCostBps * 100) / 100,
       rebalance_bps: Math.round(rebalanceBps * 100) / 100,
       slippage_bps: Math.round(slippageBps * 100) / 100,
+      v4_tick: quote.tick || null,
+      v4_lp_fee_raw: quote.lp_fee_bps || null,
     };
     const edgeAfterCostsBps = rawSpreadBps - estimatedCostBps;
 
