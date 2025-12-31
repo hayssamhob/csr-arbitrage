@@ -1,4 +1,4 @@
-import { BigNumber, constants, Contract, providers, utils } from "ethers";
+import { BigNumber, constants, providers, utils } from "ethers";
 import Redis from "ioredis";
 import { v4 as uuidv4 } from "uuid";
 import { CONTRACTS, config as serviceConfig } from "./config";
@@ -12,11 +12,8 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const TOPIC_MARKET_DATA = "market.data";
 
-// PoolManager ABI - extsload for reading storage slots
-const POOL_MANAGER_ABI = [
-  "function extsload(bytes32 slot) external view returns (bytes32)",
-  "function extsload(bytes32[] slots) external view returns (bytes32[])",
-];
+// extsload function selector: keccak256("extsload(bytes32)")[:4] = 0x1e2eaeaf
+const EXTSLOAD_SELECTOR = "0x1e2eaeaf";
 
 // Storage slot 6 is where pools mapping lives in PoolManager
 const POOLS_SLOT = 6;
@@ -99,11 +96,6 @@ function sqrtPriceX96ToPrice(
 }
 
 const provider = new providers.JsonRpcProvider(serviceConfig.RPC_URL);
-const poolManager = new Contract(
-  CONTRACTS.UNISWAP_V4_MANAGER,
-  POOL_MANAGER_ABI,
-  provider
-);
 const redis = new Redis(serviceConfig.REDIS_URL);
 
 // Pool state from on-chain
@@ -131,14 +123,20 @@ interface ValidatedPool {
 // Cache for discovered pools
 const discoveredPools: Map<string, ValidatedPool> = new Map();
 
-// Read pool state from PoolManager using extsload
+// Read pool state from PoolManager using raw eth_call to extsload
 async function readPoolState(poolId: string): Promise<PoolState | null> {
   try {
     const stateSlot = getPoolStateSlot(poolId);
 
-    // Slot0 is packed: sqrtPriceX96 (160 bits) + tick (24 bits) + protocolFee (24 bits) + lpFee (24 bits)
-    // Total = 232 bits, fits in one slot
-    const slot0Data = await poolManager.extsload(stateSlot);
+    // Build calldata: extsload(bytes32 slot)
+    // Function selector (4 bytes) + slot (32 bytes)
+    const calldata = EXTSLOAD_SELECTOR + stateSlot.slice(2); // Remove 0x from slot
+
+    // Call PoolManager.extsload via raw eth_call
+    const slot0Data = await provider.call({
+      to: CONTRACTS.UNISWAP_V4_MANAGER,
+      data: calldata,
+    });
 
     if (
       slot0Data ===
