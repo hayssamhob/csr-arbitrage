@@ -2,7 +2,8 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import Redis from 'ioredis';
-import { createPublicClient, http, parseAbi } from 'viem';
+import http from 'http';
+import { createPublicClient, http as viemHttp, parseAbi } from 'viem';
 import { mainnet } from 'viem/chains';
 import { v4 as uuidv4 } from 'uuid';
 import { loadConfig } from './config';
@@ -43,7 +44,7 @@ async function main() {
   // Public for reading
   const publicClient = createPublicClient({
     chain: mainnet,
-    transport: http(config.RPC_URL),
+    transport: viemHttp(config.RPC_URL),
   });
 
   // Wallet for writing - Placeholder account or private key from env
@@ -193,8 +194,29 @@ async function main() {
 
   log('info', 'polling_started');
 
+  // Health Check Server
+  const HTTP_PORT = process.env.HTTP_PORT || 3002;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: redisPub.status === 'ready' ? 'healthy' : 'degraded',
+        service: 'uniswap-v4-gateway',
+        version: '2.0.0-v4'
+      }));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+
+  server.listen(HTTP_PORT, () => {
+    log('info', 'http_server_started', { port: HTTP_PORT });
+  });
+
   process.on('SIGTERM', async () => {
     log('info', 'shutting_down');
+    server.close();
     await redisPub.quit();
     await redisSub.quit();
     process.exit(0);

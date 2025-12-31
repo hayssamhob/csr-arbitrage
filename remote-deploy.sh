@@ -96,6 +96,7 @@ ssh -i "$SSH_KEY" $SERVER_USER@$SERVER_IP << 'EOF'
     pm2 stop uniswap-scraper || true
     pm2 stop uniswap-quote-csr || true
     pm2 stop uniswap-quote-csr25 || true
+    pm2 stop backend || true
     
     # C. Build and Start Docker Stack
     echo "🔨 Building Docker stack..."
@@ -121,3 +122,4 @@ echo -e "${GREEN}✅ Deployment Complete!${NC}"
 echo "Verify endpoints:"
 echo "Strategy: http://$SERVER_IP:3003/health"
 echo "LBank:    http://$SERVER_IP:3001/health"
+echo "Backend:  http://$SERVER_IP:8001/"

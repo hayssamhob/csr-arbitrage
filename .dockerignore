@@ -1,0 +1,14 @@
+node_modules
+.git
+.env
+.env.*
+*.log
+npm-debug.log*
+dist
+build
+coverage
+.DS_Store
+.vscode
+.idea
+backend-build.tar.gz
+frontend-build.tar.gz

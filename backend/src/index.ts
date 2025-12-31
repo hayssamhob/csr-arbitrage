@@ -875,8 +875,8 @@ app.get("/api/alignment/:market", async (req, res) => {
 app.get("/api/alignment", async (req, res) => {
   try {
     const [csrResp, csr25Resp] = await Promise.all([
-      axios.get(`http://localhost:${PORT}/api/alignment/csr_usdt`),
-      axios.get(`http://localhost:${PORT}/api/alignment/csr25_usdt`),
+      axios.get(`http://127.0.0.1:${PORT}/api/alignment/csr_usdt`),
+      axios.get(`http://127.0.0.1:${PORT}/api/alignment/csr25_usdt`),
     ]);
     res.json({
       ts: new Date().toISOString(),

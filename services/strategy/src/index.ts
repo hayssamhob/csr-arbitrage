@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import Redis from 'ioredis';
+import http from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import { loadConfig } from './config';
 // Shared imports
@@ -94,7 +95,7 @@ async function main() {
               }
 
               if (!dataStr) {
-                await redisSub.xack(STREAM_KEY, GROUP_NAME, id); 
+                await redisSub.xack(STREAM_KEY, GROUP_NAME, id);
                 continue;
               }
 
@@ -165,32 +166,32 @@ async function main() {
       const bps = spread * 10000;
 
       if (bps > config.MIN_EDGE_BPS) {
-         const runId = uuidv4();
-         log('info', 'opportunity_found', {
-           runId,
-           direction: 'CEX->DEX',
-           symbol,
-           cex: cex.venue,
-           buyAt: cexAsk,
-           sellAt: dexBid,
-           bps: Math.round(bps)
-         });
-         
-         // Publish Execution Request (Simulating Strategy -> Execution direct link)
-         const request = {
-            type: 'execution.request',
-            eventId: uuidv4(),
-            runId,
-            symbol,
-            direction: 'buy_cex_sell_dex', // Simplified direction
-            sizeUsdt: config.QUOTE_SIZE_USDT,
-            minProfitBps: config.MIN_EDGE_BPS,
-            ts: Date.now()
-         };
+        const runId = uuidv4();
+        log('info', 'opportunity_found', {
+          runId,
+          direction: 'CEX->DEX',
+          symbol,
+          cex: cex.venue,
+          buyAt: cexAsk,
+          sellAt: dexBid,
+          bps: Math.round(bps)
+        });
 
-         // Publish to execution stream
-         redisPub.xadd(TOPICS.EXECUTION_REQUESTS, '*', 'data', JSON.stringify(request));
-         redisPub.publish(TOPICS.EXECUTION_REQUESTS, JSON.stringify(request));
+        // Publish Execution Request (Simulating Strategy -> Execution direct link)
+        const request = {
+          type: 'execution.request',
+          eventId: uuidv4(),
+          runId,
+          symbol,
+          direction: 'buy_cex_sell_dex', // Simplified direction
+          sizeUsdt: config.QUOTE_SIZE_USDT,
+          minProfitBps: config.MIN_EDGE_BPS,
+          ts: Date.now()
+        };
+
+        // Publish to execution stream
+        redisPub.xadd(TOPICS.EXECUTION_REQUESTS, '*', 'data', JSON.stringify(request));
+        redisPub.publish(TOPICS.EXECUTION_REQUESTS, JSON.stringify(request));
       }
     }
 
@@ -200,35 +201,35 @@ async function main() {
     const cexBid = cex.bid || cex.last;
 
     if (dexAsk && cexBid && cexBid > dexAsk) {
-       const spread = (cexBid - dexAsk) / dexAsk;
-       const bps = spread * 10000;
+      const spread = (cexBid - dexAsk) / dexAsk;
+      const bps = spread * 10000;
 
-       if (bps > config.MIN_EDGE_BPS) {
-         const runId = uuidv4();
-         log('info', 'opportunity_found', {
-           runId,
-           direction: 'DEX->CEX',
-           symbol,
-           cex: cex.venue,
-           buyAt: dexAsk,
-           sellAt: cexBid,
-           bps: Math.round(bps)
-         });
-         
-         const request = {
-            type: 'execution.request',
-            eventId: uuidv4(),
-            runId,
-            symbol,
-            direction: 'buy_dex_sell_cex',
-            sizeUsdt: config.QUOTE_SIZE_USDT,
-            minProfitBps: config.MIN_EDGE_BPS,
-            ts: Date.now()
-         };
+      if (bps > config.MIN_EDGE_BPS) {
+        const runId = uuidv4();
+        log('info', 'opportunity_found', {
+          runId,
+          direction: 'DEX->CEX',
+          symbol,
+          cex: cex.venue,
+          buyAt: dexAsk,
+          sellAt: cexBid,
+          bps: Math.round(bps)
+        });
 
-         redisPub.xadd(TOPICS.EXECUTION_REQUESTS, '*', 'data', JSON.stringify(request));
-         redisPub.publish(TOPICS.EXECUTION_REQUESTS, JSON.stringify(request));
-       }
+        const request = {
+          type: 'execution.request',
+          eventId: uuidv4(),
+          runId,
+          symbol,
+          direction: 'buy_dex_sell_cex',
+          sizeUsdt: config.QUOTE_SIZE_USDT,
+          minProfitBps: config.MIN_EDGE_BPS,
+          ts: Date.now()
+        };
+
+        redisPub.xadd(TOPICS.EXECUTION_REQUESTS, '*', 'data', JSON.stringify(request));
+        redisPub.publish(TOPICS.EXECUTION_REQUESTS, JSON.stringify(request));
+      }
     }
   }
 
@@ -238,9 +239,30 @@ async function main() {
   // Keep alive
   log('info', 'strategy_engine_started');
 
+  // Health Check Server
+  const HTTP_PORT = process.env.HTTP_PORT || 3005;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: 'healthy',
+        service: 'strategy',
+        version: '2.0.0-redis'
+      }));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+
+  server.listen(HTTP_PORT, () => {
+    log('info', 'http_server_started', { port: HTTP_PORT });
+  });
+
   // Graceful shutdown
   const shutdown = async () => {
     log('info', 'shutting_down');
+    server.close();
     await redisSub.quit();
     await redisPub.quit();
     process.exit(0);
