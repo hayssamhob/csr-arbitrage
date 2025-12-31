@@ -37,7 +37,7 @@ fi
 echo -e "${YELLOW}📥 Fetching existing .env for critical credentials...${NC}"
 # Extract key variables from the legacy backend .env if strictly relevant
 REMOTE_ENV_PATH="/root/csr-arbitrage-mvp/backend/.env"
-VARS_TO_FETCH=("ETH_RPC_URL" "SUPABASE_URL" "SUPABASE_SERVICE_ROLE_KEY" "SUPABASE_JWT_SECRET" "PRIVATE_KEY")
+VARS_TO_FETCH=("ETH_RPC_URL" "SUPABASE_URL" "SUPABASE_SERVICE_ROLE_KEY" "SUPABASE_JWT_SECRET" "PRIVATE_KEY" "CSR_POOL_ID" "CSR25_POOL_ID")
 
 for VAR in "${VARS_TO_FETCH[@]}"; do
     VAL=$(ssh -i "$SSH_KEY" $SERVER_USER@$SERVER_IP "grep $VAR $REMOTE_ENV_PATH | head -n 1 | cut -d '=' -f2-" | tr -d '\r')
@@ -57,6 +57,10 @@ if [ -z "$RPC_URL" ]; then
     RPC_URL="https://eth.llamarpc.com"
 fi
 
+# Fallback Pool IDs for Mainnet if not found on remote
+if [ -z "$CSR_POOL_ID" ]; then CSR_POOL_ID="0x6c76bb9f364e72fcb57819d2920550768cf43e09e819daa40fabe9c7ab057f9e"; fi
+if [ -z "$CSR25_POOL_ID" ]; then CSR25_POOL_ID="0x46afcc847653fa391320b2bde548c59cf384b029933667c541fb730c5641778e"; fi
+
 # Generate Secure Passwords
 REDIS_PASSWORD=$(openssl rand -hex 16)
 DB_PASSWORD=$(openssl rand -hex 16)
@@ -74,6 +78,8 @@ echo "SUPABASE_URL=$SUPABASE_URL" >> .env.deploy
 echo "SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY" >> .env.deploy
 echo "SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET" >> .env.deploy
 echo "PRIVATE_KEY=$PRIVATE_KEY" >> .env.deploy
+echo "CSR_POOL_ID=$CSR_POOL_ID" >> .env.deploy
+echo "CSR25_POOL_ID=$CSR25_POOL_ID" >> .env.deploy
 
 echo -e "${YELLOW}📁 Creating remote directory...${NC}"
 ssh -i "$SSH_KEY" $SERVER_USER@$SERVER_IP "mkdir -p $REMOTE_DIR"
