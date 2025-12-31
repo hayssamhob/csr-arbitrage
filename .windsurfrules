@@ -155,7 +155,6 @@ Before producing the answer, internally verify:
  • All services start independently
  • Health endpoints work
  • Logs are structured
- • MVP scope is respected
 
 ⸻
 

@@ -1,7 +1,9 @@
 # Architecture (Lean MVP)
 
 ## Goal
+
 Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence between:
+
 - LBank (CEX) orderbook/ticker
 - LaToken (CEX) orderbook/ticker
 - Uniswap (DEX) effective quote price
@@ -9,6 +11,7 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 …and support a future upgrade to inventory arbitrage execution.
 
 ## Non-Goals (for MVP) but goals after MVP
+
 - Automated withdrawals / cross-venue transfers
 - Fully automated trading execution
 - Complex route optimization beyond basic quoting
@@ -19,6 +22,7 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 ## System Overview
 
 ### Components
+
 1) **Market Data Gateways (Node/TS)**
    - **LBank Gateway**: Connects to LBank WebSocket.
    - **Latoken Gateway**: Connects to Latoken WebSocket.
@@ -30,6 +34,7 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
    - Read-only module that returns effective execution prices for given sizes
    - Can be called on interval by Strategy Engine
    - Cached results and stale detection
+   - We use only UNISWAP V4 POOLS and API
 
 3) **Strategy Engine (Dry-run, Node/TS)**
    - Computes “edge after costs” and decides:
@@ -51,12 +56,14 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 ## Data Flows
 
 ### Market Data (LBank → Gateway → Consumers)
+
 - LBank WS → parse/validate → internal event bus → internal WS broadcast
 - Consumers subscribe to internal WS:
   - dashboard
   - strategy engine
 
 ### DEX Quotes
+
 - Strategy/Dashboard calls Quote Service on a schedule:
   - request: tokenIn/tokenOut, amountIn, chainId, slippage config
   - response: effective price, estimated gas, route metadata, timestamp
@@ -66,6 +73,7 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 ## Internal Data Schemas (MVP)
 
 ### LBank Ticker Event
+
 ```json
 {
   "type": "lbank.ticker",
@@ -94,40 +102,40 @@ Provide a simple, stable foundation for monitoring CSR/CSR25 price divergence be
 }
 
 Staleness & Health
-	•	Each service maintains:
-	•	last_message_ts
-	•	reconnect_count
-	•	errors_last_5m
-	•	Circuit breaker (MVP):
-	•	If LBank feed stale > X seconds → mark unhealthy
-	•	If Uniswap quote fails N times → mark degraded
+ • Each service maintains:
+ • last_message_ts
+ • reconnect_count
+ • errors_last_5m
+ • Circuit breaker (MVP):
+ • If LBank feed stale > X seconds → mark unhealthy
+ • If Uniswap quote fails N times → mark degraded
 
 ⸻
 
-Security Model (MVP)
-	•	No secret in frontend. Ever.
-	•	No trading keys required for MVP.
-	•	Env vars:
-	•	LBANK_WS_URL
-	•	INTERNAL_WS_PORT
-	•	HTTP_PORT
-	•	LOG_LEVEL
-	•	Later (execution):
-	•	exchange API keys live only in execution service
-	•	wallet keys stored securely, with hot-wallet limits
+Security Model 
+ • No secret in frontend. Ever.
+ • No trading keys required for MVP.
+ • Env vars:
+ • LBANK_WS_URL
+ • INTERNAL_WS_PORT
+ • HTTP_PORT
+ • LOG_LEVEL
+ • Later (execution):
+ • exchange API keys live only in execution service
+ • wallet keys stored securely, with hot-wallet limits
 
 ⸻
 
 Repo Layout (suggested)
-	•	/services/lbank-gateway
-	•	/services/uniswap-quote
-	•	/services/strategy
-	•	/apps/dashboard (later)
-	•	/packages/shared (types, validators, helpers)
+ • /services/lbank-gateway
+ • /services/uniswap-quote
+ • /services/strategy
+ • /apps/dashboard (later)
+ • /packages/shared (types, validators, helpers)
 
 ⸻
 
 Operational Expectations
-	•	Services run under a process manager (PM2/systemd) or Docker.
-	•	Restart on crash.
-	•	Expose health endpoints for monitoring.
+ • Services run under a process manager (PM2/systemd) or Docker.
+ • Restart on crash.
+ • Expose health endpoints for monitoring.

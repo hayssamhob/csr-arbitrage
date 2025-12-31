@@ -15,7 +15,7 @@ const TOPIC_MARKET_DATA = 'market.data';
 
 // Minimal ABIs for Uniswap V4
 const POOL_MANAGER_ABI = parseAbi([
-    'function getSlot0(bytes32 poolId) external view returns (uint160 sqrtPriceX96, int24 tick, uint16 protocolFee, uint24 lpFee)'
+    'function getSlot0(bytes32 poolId) external view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)'
 ]);
 
 const QUOTER_ABI = parseAbi([
@@ -30,24 +30,25 @@ const viemClient = createPublicClient({
 });
 
 /**
- * Fetch V4 Price using PoolManager (Slot0) as baseline
+ * Fetch V4 Price using PoolManager (Slot0) as fallback
  */
 async function getV4MidPrice(poolId: string): Promise<number | null> {
     try {
-        const [sqrtPriceX96] = await viemClient.readContract({
+        const result = await viemClient.readContract({
             address: CONTRACTS.UNISWAP_V4_MANAGER as `0x${string}`,
             abi: POOL_MANAGER_ABI,
             functionName: 'getSlot0',
             args: [poolId as `0x${string}`]
         });
 
+        const sqrtPriceX96 = result[0];
+
         // Price = (sqrtPriceX96 / 2^96)^2
         const price = Number(sqrtPriceX96) / (2 ** 96);
-        const actualPrice = price * price;
+        const ratio = price * price;
 
-        // Note: This price depends on token0/token1 order. 
-        // For our pools (Token/WETH or Token/USDT), we need to handle decimals.
-        return actualPrice;
+        // Decimal adjustment: 10^18 (Token) / 10^6 (USDT) = 10^12
+        return ratio * 1e12;
     } catch (err) {
         console.error(`[V4-Price] Error fetching Slot0 for ${poolId}:`, err);
         return null;
@@ -64,22 +65,62 @@ async function getQuote(symbol: 'CSR' | 'CSR25', amountUsdt: number) {
     }
 
     try {
-        // For MVP, we use the MidPrice from Slot0 as a reliable indicator
-        // if the Quoter is not yet fully available for these specific pools
-        const midPrice = await getV4MidPrice(poolId);
-
-        if (!midPrice) return null;
-
-        // Adjusting for decimals (assuming CSR/CSR25 have 18, and we might be paired with WETH/USDT)
-        // This logic should be refined based on actual V4 pool compositions
-        // For now, we return the normalized mid price
-
-        return {
-            price: midPrice,
-            amountOut: (amountUsdt / midPrice).toString(),
-            gasEstimate: "150000", // Generic V4 gas estimate
-            ts: Date.now()
+        // Construct PoolKey
+        const poolKey = {
+            currency0: tokenAddress < CONTRACTS.USDT_TOKEN ? (tokenAddress as `0x${string}`) : (CONTRACTS.USDT_TOKEN as `0x${string}`),
+            currency1: tokenAddress < CONTRACTS.USDT_TOKEN ? (CONTRACTS.USDT_TOKEN as `0x${string}`) : (tokenAddress as `0x${string}`),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: '0x0000000000000000000000000000000000000000' as `0x${string}`
         };
+
+        const zeroForOne = tokenAddress.toLowerCase() === poolKey.currency0.toLowerCase();
+        const amountIn = BigInt(1e18); // 1 Token (18 decimals)
+
+        // Try Quoter first
+        try {
+            console.log(`[Quote] Simulating V4 Quote for ${symbol}...`);
+            console.log(`PoolKey:`, poolKey);
+            console.log(`zeroForOne: ${zeroForOne}, amountIn: ${amountIn.toString()}`);
+
+            const { result } = await viemClient.simulateContract({
+                address: CONTRACTS.UNISWAP_V4_QUOTER as `0x${string}`,
+                abi: QUOTER_ABI,
+                functionName: 'quoteExactInputSingle',
+                args: [poolKey, zeroForOne, amountIn, '0x']
+            });
+
+            const [amountOut, gasEstimate] = result as [bigint, bigint];
+            const price = Number(formatUnits(amountOut, 6));
+
+            console.log(`[Quote] V4 Quoter success for ${symbol}: ${price} USDT`);
+
+            return {
+                price: price,
+                amountOut: amountOut.toString(),
+                gasEstimate: gasEstimate.toString(),
+                ts: Date.now()
+            };
+        } catch (quoterErr: any) {
+            console.warn(`[Quote] V4 Quoter failed for ${symbol}: ${quoterErr.shortMessage || quoterErr.message}`);
+
+            console.log(`[Quote] Trying Slot0 fallback for ${symbol} (PoolID: ${poolId})...`);
+            const midPrice = await getV4MidPrice(poolId);
+
+            if (!midPrice) {
+                console.error(`[Quote] Slot0 fallback also failed for ${symbol}`);
+                return null;
+            }
+
+            console.log(`[Quote] Slot0 fallback success for ${symbol}: ${midPrice} USDT`);
+
+            return {
+                price: midPrice,
+                amountOut: (midPrice * 1e6).toString(),
+                gasEstimate: "200000",
+                ts: Date.now()
+            };
+        }
     } catch (e: any) {
         console.error(`[Quote] V4 fetch failed for ${symbol}:`, e.message);
     }
@@ -95,15 +136,15 @@ async function publishTick(symbol: string, data: any) {
         source: 'uniswap_v4',
         ts: new Date().toISOString(),
         effective_price_usdt: data.price,
-        amount_in: 100,
-        amount_out: data.amountOut,
-        gas_estimate_usdt: 0.5,
+        amount_in: 1, // 1 Token
+        amount_out: Number(data.amountOut) / 1e6, // In USDT
+        gas_estimate_usdt: (Number(data.gasEstimate) * 40e-9 * 3000), // Very rough estimate (gas * gasPrice * ethPrice)
         route: 'v4_pool'
     };
 
     try {
         await redis.xadd(TOPIC_MARKET_DATA, '*', 'payload', JSON.stringify(tick));
-        console.log(`[Quote] Published V4 ${symbol} price: ${data.price.toFixed(6)}`);
+        console.log(`[Quote] Published V4 ${symbol} price: ${data.price.toFixed(6)} USDT`);
     } catch (err) {
         console.error(`[Quote] Redis publish error:`, err);
     }
@@ -113,6 +154,14 @@ async function main() {
     console.log(`Uniswap V4 Quote Service starting...`);
     console.log(`RPC: ${config.RPC_URL.slice(0, 30)}...`);
     console.log(`PoolManager: ${CONTRACTS.UNISWAP_V4_MANAGER}`);
+
+    // Test connectivity
+    try {
+        const block = await viemClient.getBlockNumber();
+        console.log(`[Quote] Successfully connected to RPC. Current block: ${block}`);
+    } catch (e: any) {
+        console.error(`[Quote] RPC connectivity test failed:`, e.message);
+    }
 
     const poll = async () => {
         try {
