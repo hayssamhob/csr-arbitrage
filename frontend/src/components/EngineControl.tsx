@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Tooltip } from './Tooltip';
 
 interface EngineControlProps {
     initialStatus?: { killSwitch: boolean; stealthMode: boolean };
@@ -67,28 +68,30 @@ export const EngineControl: React.FC<EngineControlProps> = ({ initialStatus }) =
             <div className="h-6 w-px bg-slate-700"></div>
 
             {/* Kill Switch */}
-            <button
-                onClick={toggleKillSwitch}
-                disabled={loading}
-                className={`relative group flex items-center gap-2 px-4 py-1.5 rounded text-sm font-bold tracking-wider transition-all ${killSwitchActive
+            <Tooltip content={killSwitchActive ? "Click to REACTIVATE the trading engine." : "Click to KILL the trading engine."}>
+                <button
+                    onClick={toggleKillSwitch}
+                    disabled={loading}
+                    className={`relative group flex items-center gap-2 px-4 py-1.5 rounded text-sm font-bold tracking-wider transition-all ${killSwitchActive
                         ? 'bg-red-600 text-white hover:bg-red-700 shadow-[0_0_15px_rgba(220,38,38,0.5)] border border-red-400'
                         : 'bg-slate-800 text-gray-400 hover:text-red-400 hover:border-red-900 border border-slate-700'
-                    }`}
-            >
-                {killSwitchActive ? (
-                    <>
-                        <svg className="w-4 h-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        ENGINE KILLED
-                    </>
-                ) : (
-                    <>
-                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                        ENGINE ACTIVE
-                    </>
-                )}
-            </button>
+                        }`}
+                >
+                    {killSwitchActive ? (
+                        <>
+                            <svg className="w-4 h-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            ENGINE KILLED
+                        </>
+                    ) : (
+                        <>
+                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                            ENGINE ACTIVE
+                        </>
+                    )}
+                </button>
+            </Tooltip>
         </div>
     );
 };

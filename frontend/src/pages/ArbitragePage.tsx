@@ -18,7 +18,6 @@ import { Footer } from "../components/Footer";
 import { useAuth } from "../contexts/AuthContext";
 import { EngineControl } from '../components/EngineControl';
 import { CustodialRiskModal } from '../components/CustodialRiskModal';
-import { Zap } from 'lucide-react';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -1075,7 +1074,6 @@ export function ArbitragePage() {
                     : "text-slate-400 hover:text-white hover:bg-slate-700"
                     }`}
                 >
-                  {m === "AUTO" && <Zap className="w-3 h-3" />}
                   {m}
                 </button>
               ))}
