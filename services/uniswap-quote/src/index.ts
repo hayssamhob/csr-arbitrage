@@ -123,20 +123,16 @@ interface ValidatedPool {
 // Cache for discovered pools
 const discoveredPools: Map<string, ValidatedPool> = new Map();
 
-// Read pool state from PoolManager using raw eth_call to extsload
+// Read pool state from PoolManager using eth_getStorageAt
 async function readPoolState(poolId: string): Promise<PoolState | null> {
   try {
     const stateSlot = getPoolStateSlot(poolId);
 
-    // Build calldata: extsload(bytes32 slot)
-    // Function selector (4 bytes) + slot (32 bytes)
-    const calldata = EXTSLOAD_SELECTOR + stateSlot.slice(2); // Remove 0x from slot
-
-    // Call PoolManager.extsload via raw eth_call
-    const slot0Data = await provider.call({
-      to: CONTRACTS.UNISWAP_V4_MANAGER,
-      data: calldata,
-    });
+    // Use eth_getStorageAt to read the slot directly
+    const slot0Data = await provider.getStorageAt(
+      CONTRACTS.UNISWAP_V4_MANAGER,
+      stateSlot
+    );
 
     if (
       slot0Data ===
@@ -146,6 +142,7 @@ async function readPoolState(poolId: string): Promise<PoolState | null> {
     }
 
     // Parse packed Slot0 data
+    // Layout: sqrtPriceX96 (160 bits) | tick (24 bits) | protocolFee (24 bits) | lpFee (24 bits)
     const slot0Bn = BigNumber.from(slot0Data);
     const sqrtPriceX96 = slot0Bn.mask(160); // Lower 160 bits
     const tick = slot0Bn.shr(160).mask(24).toNumber();
@@ -158,7 +155,9 @@ async function readPoolState(poolId: string): Promise<PoolState | null> {
     return { sqrtPriceX96, tick: signedTick, protocolFee, lpFee };
   } catch (err: any) {
     console.error(
-      `[Quote] extsload failed for ${poolId.slice(0, 18)}...: ${err.message}`
+      `[Quote] getStorageAt failed for ${poolId.slice(0, 18)}...: ${
+        err.message
+      }`
     );
     return null;
   }
