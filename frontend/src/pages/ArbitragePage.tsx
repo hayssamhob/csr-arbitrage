@@ -16,6 +16,9 @@ import { useEffect, useState } from "react";
 import { AdvancedMetricsCard } from "../components/AdvancedMetricsCard";
 import { Footer } from "../components/Footer";
 import { useAuth } from "../contexts/AuthContext";
+import { EngineControl } from '../components/EngineControl';
+import { CustodialRiskModal } from '../components/CustodialRiskModal';
+import { Zap } from 'lucide-react';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -105,11 +108,10 @@ function ClickablePrice({
 
   const content = (
     <span
-      className={`font-mono ${className} ${
-        href
-          ? "hover:text-emerald-400 cursor-pointer underline decoration-dotted underline-offset-2"
-          : ""
-      }`}
+      className={`font-mono ${className} ${href
+        ? "hover:text-emerald-400 cursor-pointer underline decoration-dotted underline-offset-2"
+        : ""
+        }`}
     >
       ${formatPrice(price)}
     </span>
@@ -172,8 +174,7 @@ function TradeExecutionModal({
           `✅ PAPER TRADE: ${opportunity.direction.replace(
             /_/g,
             " "
-          )} $${tradeSize} of ${
-            opportunity.market
+          )} $${tradeSize} of ${opportunity.market
           }\nEstimated profit: $${estimatedEdgeUsd.toFixed(2)}`
         );
         onClose();
@@ -237,11 +238,10 @@ function TradeExecutionModal({
 
         alert(
           `✅ ARBITRAGE INITIATED!\n\n` +
-            `CEX BUY: ${
-              cexResult.order.filled || tokenAmount.toFixed(2)
-            } ${token} on ${opportunity.cex_venue}\n` +
-            `Order ID: ${cexResult.order.id}\n\n` +
-            `DEX SELL: Uniswap opened in new tab - complete the swap to finish arbitrage!`
+          `CEX BUY: ${cexResult.order.filled || tokenAmount.toFixed(2)
+          } ${token} on ${opportunity.cex_venue}\n` +
+          `Order ID: ${cexResult.order.id}\n\n` +
+          `DEX SELL: Uniswap opened in new tab - complete the swap to finish arbitrage!`
         );
       } else {
         // BUY_DEX_SELL_CEX: Buy on DEX, Sell on CEX
@@ -271,14 +271,13 @@ function TradeExecutionModal({
 
         alert(
           `✅ ARBITRAGE INITIATED!\n\n` +
-            `DEX BUY: Uniswap opened - buy ${tokenAmount.toFixed(
-              2
-            )} ${token}\n\n` +
-            `CEX SELL: Order placed for ${tokenAmount.toFixed(2)} ${token} on ${
-              opportunity.cex_venue
-            }\n` +
-            `Order ID: ${cexResult.order.id}\n\n` +
-            `Complete the Uniswap swap to finish arbitrage!`
+          `DEX BUY: Uniswap opened - buy ${tokenAmount.toFixed(
+            2
+          )} ${token}\n\n` +
+          `CEX SELL: Order placed for ${tokenAmount.toFixed(2)} ${token} on ${opportunity.cex_venue
+          }\n` +
+          `Order ID: ${cexResult.order.id}\n\n` +
+          `Complete the Uniswap swap to finish arbitrage!`
         );
       }
 
@@ -307,11 +306,10 @@ function TradeExecutionModal({
           <div className="flex justify-between items-center mb-2">
             <span className="text-lg font-bold">{opportunity.market}</span>
             <span
-              className={`px-2 py-1 rounded text-xs font-medium ${
-                opportunity.direction === "BUY_DEX_SELL_CEX"
-                  ? "bg-emerald-500/20 text-emerald-400"
-                  : "bg-blue-500/20 text-blue-400"
-              }`}
+              className={`px-2 py-1 rounded text-xs font-medium ${opportunity.direction === "BUY_DEX_SELL_CEX"
+                ? "bg-emerald-500/20 text-emerald-400"
+                : "bg-blue-500/20 text-blue-400"
+                }`}
             >
               {opportunity.direction.replace(/_/g, " ")}
             </span>
@@ -392,9 +390,8 @@ function TradeExecutionModal({
               </span>
             </Tooltip>
             <span
-              className={`font-mono ${
-                estimatedPriceImpact > 1 ? "text-amber-400" : "text-slate-300"
-              }`}
+              className={`font-mono ${estimatedPriceImpact > 1 ? "text-amber-400" : "text-slate-300"
+                }`}
             >
               {estimatedPriceImpact.toFixed(2)}%
             </span>
@@ -416,9 +413,8 @@ function TradeExecutionModal({
               </span>
             </Tooltip>
             <span
-              className={`font-mono font-bold ${
-                estimatedEdgeUsd >= 0 ? "text-emerald-400" : "text-red-400"
-              }`}
+              className={`font-mono font-bold ${estimatedEdgeUsd >= 0 ? "text-emerald-400" : "text-red-400"
+                }`}
             >
               ${estimatedEdgeUsd.toFixed(2)} ({estimatedEdgeBps > 0 ? "+" : ""}
               {estimatedEdgeBps} bps)
@@ -456,19 +452,18 @@ function TradeExecutionModal({
           <button
             onClick={handleExecute}
             disabled={isExecuting || estimatedEdgeUsd < 0}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
-              estimatedEdgeUsd < 0
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : mode === "PAPER"
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${estimatedEdgeUsd < 0
+              ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+              : mode === "PAPER"
                 ? "bg-yellow-600 text-white hover:bg-yellow-500"
                 : "bg-emerald-600 text-white hover:bg-emerald-500"
-            }`}
+              }`}
           >
             {isExecuting
               ? "Executing..."
               : mode === "PAPER"
-              ? "Simulate Trade"
-              : "Execute Trade"}
+                ? "Simulate Trade"
+                : "Execute Trade"}
           </button>
         </div>
       </div>
@@ -583,6 +578,8 @@ export function ArbitragePage() {
     priceHistory: { csr_usdt: [], csr25_usdt: [] },
   });
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
+  const [showRiskModal, setShowRiskModal] = useState(false);
+  const [pendingMode, setPendingMode] = useState<"PAPER" | "MANUAL" | "AUTO" | null>(null);
   const [userInventory, setUserInventory] = useState<UserInventory | null>(
     null
   );
@@ -689,27 +686,27 @@ export function ArbitragePage() {
           // Calculate max safe size based on user's available balances
           const userMaxSize = userInventory
             ? calculateMaxTradeSize({
-                market: "CSR/USDT",
-                cex_venue: "LATOKEN",
-                cex_bid: csrLatoken.bid,
-                cex_ask: csrLatoken.ask,
-                cex_mid: cexMid,
-                cex_ts: csrLatoken.ts,
-                dex_exec_price: dexPrice,
-                dex_quote_size: 1000,
-                dex_price_impact: 0.5,
-                dex_gas_usd: 0.01,
-                dex_ts: csrDex.ts,
-                edge_bps: edgeBps,
-                edge_usd: edgeUsd,
-                max_safe_size: 10000, // High default, will be limited by balance
-                direction:
-                  csrDecision?.direction === "buy_dex_sell_cex"
-                    ? "BUY_DEX_SELL_CEX"
-                    : "BUY_CEX_SELL_DEX",
-                is_actionable: true,
-                reason: "",
-              })
+              market: "CSR/USDT",
+              cex_venue: "LATOKEN",
+              cex_bid: csrLatoken.bid,
+              cex_ask: csrLatoken.ask,
+              cex_mid: cexMid,
+              cex_ts: csrLatoken.ts,
+              dex_exec_price: dexPrice,
+              dex_quote_size: 1000,
+              dex_price_impact: 0.5,
+              dex_gas_usd: 0.01,
+              dex_ts: csrDex.ts,
+              edge_bps: edgeBps,
+              edge_usd: edgeUsd,
+              max_safe_size: 10000, // High default, will be limited by balance
+              direction:
+                csrDecision?.direction === "buy_dex_sell_cex"
+                  ? "BUY_DEX_SELL_CEX"
+                  : "BUY_CEX_SELL_DEX",
+              is_actionable: true,
+              reason: "",
+            })
             : 1000; // Default if no inventory loaded
 
           const maxSafeSize = Math.max(10, Math.min(userMaxSize, 10000));
@@ -791,27 +788,27 @@ export function ArbitragePage() {
           // Calculate max safe size based on user's available balances
           const csr25UserMaxSize = userInventory
             ? calculateMaxTradeSize({
-                market: "CSR25/USDT",
-                cex_venue: "LBank",
-                cex_bid: csr25Lbank.bid,
-                cex_ask: csr25Lbank.ask,
-                cex_mid: cexMid,
-                cex_ts: csr25Lbank.ts,
-                dex_exec_price: dexPrice,
-                dex_quote_size: 1000,
-                dex_price_impact: 0.3,
-                dex_gas_usd: 0.01,
-                dex_ts: csr25Dex.ts,
-                edge_bps: edgeBps,
-                edge_usd: 0,
-                max_safe_size: 10000,
-                direction:
-                  csr25Decision?.direction === "buy_dex_sell_cex"
-                    ? "BUY_DEX_SELL_CEX"
-                    : "BUY_CEX_SELL_DEX",
-                is_actionable: true,
-                reason: "",
-              })
+              market: "CSR25/USDT",
+              cex_venue: "LBank",
+              cex_bid: csr25Lbank.bid,
+              cex_ask: csr25Lbank.ask,
+              cex_mid: cexMid,
+              cex_ts: csr25Lbank.ts,
+              dex_exec_price: dexPrice,
+              dex_quote_size: 1000,
+              dex_price_impact: 0.3,
+              dex_gas_usd: 0.01,
+              dex_ts: csr25Dex.ts,
+              edge_bps: edgeBps,
+              edge_usd: 0,
+              max_safe_size: 10000,
+              direction:
+                csr25Decision?.direction === "buy_dex_sell_cex"
+                  ? "BUY_DEX_SELL_CEX"
+                  : "BUY_CEX_SELL_DEX",
+              is_actionable: true,
+              reason: "",
+            })
             : 1000;
 
           const csr25MaxSafeSize = Math.max(
@@ -1004,12 +1001,19 @@ export function ArbitragePage() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleModeChange = (mode: "PAPER" | "MANUAL" | "AUTO") => {
-    if (mode === "AUTO" && state.kill_switch) {
-      alert("Cannot enable AUTO mode while kill switch is active");
-      return;
+  const handleModeChange = (newMode: "PAPER" | "MANUAL" | "AUTO") => {
+    if (newMode === "AUTO") {
+      setPendingMode("AUTO");
+      setShowRiskModal(true);
+    } else {
+      setState((prev) => ({ ...prev, mode: newMode }));
     }
-    setState((prev) => ({ ...prev, mode }));
+  };
+
+  const confirmAutoMode = () => {
+    setState((prev) => ({ ...prev, mode: "AUTO" }));
+    setShowRiskModal(false);
+    setPendingMode(null);
   };
 
   const handleExecute = (opp: Opportunity) => {
@@ -1029,8 +1033,14 @@ export function ArbitragePage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
+      <CustodialRiskModal
+        isOpen={showRiskModal}
+        onAccept={confirmAutoMode}
+        onCancel={() => setShowRiskModal(false)}
+      />
+
       {/* Header */}
-      <div className="bg-slate-900 border-b border-slate-700 px-4 py-3">
+      <div className="bg-slate-900 border-b border-slate-700 px-4 py-3 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">📈 CEX↔DEX Arbitrage</h1>
@@ -1041,52 +1051,35 @@ export function ArbitragePage() {
 
           {/* Mode & Controls */}
           <div className="flex items-center gap-4">
+            <EngineControl />
+
             {/* Mode Selector */}
             <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
-              {(["PAPER", "MANUAL", "AUTO"] as const).map((mode) => (
+              {(["PAPER", "MANUAL", "AUTO"] as const).map((m) => (
                 <button
-                  key={mode}
-                  onClick={() => handleModeChange(mode)}
-                  disabled={mode === "AUTO"}
+                  key={m}
+                  onClick={() => handleModeChange(m)}
                   title={
-                    mode === "PAPER"
+                    m === "PAPER"
                       ? "Simulate trades without real execution"
-                      : mode === "MANUAL"
-                      ? "Confirm each trade before execution"
-                      : "Automatic execution (coming soon)"
+                      : m === "MANUAL"
+                        ? "Confirm each trade before execution"
+                        : "Automatic execution (requires consent)"
                   }
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
-                    state.mode === mode
-                      ? mode === "PAPER"
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all flex items-center gap-1.5 ${state.mode === m
+                    ? m === "AUTO"
+                      ? "bg-emerald-600 text-white shadow-sm shadow-emerald-500/20"
+                      : m === "PAPER"
                         ? "bg-yellow-600 text-white"
-                        : mode === "MANUAL"
-                        ? "bg-blue-600 text-white"
-                        : "bg-green-600 text-white"
-                      : "text-slate-400 hover:text-white hover:bg-slate-700"
-                  } ${mode === "AUTO" ? "opacity-50 cursor-not-allowed" : ""}`}
+                        : "bg-blue-600 text-white"
+                    : "text-slate-400 hover:text-white hover:bg-slate-700"
+                    }`}
                 >
-                  {mode}
+                  {m === "AUTO" && <Zap className="w-3 h-3" />}
+                  {m}
                 </button>
               ))}
             </div>
-
-            {/* Kill Switch */}
-            <button
-              onClick={() =>
-                setState((prev) => ({
-                  ...prev,
-                  kill_switch: !prev.kill_switch,
-                }))
-              }
-              title={state.kill_switch ? "Resume trading" : "Stop all trading"}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${
-                state.kill_switch
-                  ? "bg-red-600 text-white animate-pulse"
-                  : "bg-emerald-600 text-white"
-              }`}
-            >
-              {state.kill_switch ? "🛑 STOPPED" : "🟢 ACTIVE"}
-            </button>
           </div>
         </div>
       </div>
@@ -1097,13 +1090,12 @@ export function ArbitragePage() {
           <div>
             <span className="text-slate-500">Mode:</span>
             <span
-              className={`ml-2 font-medium ${
-                state.mode === "PAPER"
-                  ? "text-yellow-400"
-                  : state.mode === "MANUAL"
+              className={`ml-2 font-medium ${state.mode === "PAPER"
+                ? "text-yellow-400"
+                : state.mode === "MANUAL"
                   ? "text-blue-400"
                   : "text-green-400"
-              }`}
+                }`}
             >
               {state.mode}
             </span>
@@ -1111,9 +1103,8 @@ export function ArbitragePage() {
           <div>
             <span className="text-slate-500">Daily P&L:</span>
             <span
-              className={`ml-2 font-mono ${
-                state.daily_pnl >= 0 ? "text-emerald-400" : "text-red-400"
-              }`}
+              className={`ml-2 font-mono ${state.daily_pnl >= 0 ? "text-emerald-400" : "text-red-400"
+                }`}
             >
               ${state.daily_pnl.toFixed(2)}
             </span>
@@ -1167,8 +1158,8 @@ export function ArbitragePage() {
                   {userInventory.balances.filter(
                     (b) => b.venue === "Wallet" && b.available > 0
                   ).length === 0 && (
-                    <div className="text-xs text-slate-500">No assets</div>
-                  )}
+                      <div className="text-xs text-slate-500">No assets</div>
+                    )}
                 </div>
               </div>
               {/* LBank */}
@@ -1191,8 +1182,8 @@ export function ArbitragePage() {
                   {userInventory.balances.filter(
                     (b) => b.venue === "LBank" && b.available > 0
                   ).length === 0 && (
-                    <div className="text-xs text-slate-500">No assets</div>
-                  )}
+                      <div className="text-xs text-slate-500">No assets</div>
+                    )}
                 </div>
               </div>
               {/* LATOKEN */}
@@ -1215,8 +1206,8 @@ export function ArbitragePage() {
                   {userInventory.balances.filter(
                     (b) => b.venue === "LATOKEN" && b.available > 0
                   ).length === 0 && (
-                    <div className="text-xs text-slate-500">No assets</div>
-                  )}
+                      <div className="text-xs text-slate-500">No assets</div>
+                    )}
                 </div>
               </div>
               {/* Trading Capacity */}
@@ -1266,9 +1257,8 @@ export function ArbitragePage() {
                 {state.opportunities.map((opp, idx) => (
                   <tr
                     key={idx}
-                    className={`${
-                      opp.is_actionable ? "hover:bg-slate-800/30" : "opacity-50"
-                    }`}
+                    className={`${opp.is_actionable ? "hover:bg-slate-800/30" : "opacity-50"
+                      }`}
                   >
                     <td className="px-4 py-3 font-medium">{opp.market}</td>
                     <td className="px-4 py-3 text-slate-400">
@@ -1310,21 +1300,19 @@ export function ArbitragePage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div
-                        className={`font-mono font-medium ${
-                          opp.edge_bps >= 0
-                            ? "text-emerald-400"
-                            : "text-red-400"
-                        }`}
+                        className={`font-mono font-medium ${opp.edge_bps >= 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                          }`}
                       >
                         {opp.edge_bps >= 0 ? "+" : ""}
                         {opp.edge_bps} bps
                       </div>
                       <div
-                        className={`text-xs ${
-                          opp.edge_usd >= 0
-                            ? "text-emerald-400/70"
-                            : "text-red-400/70"
-                        }`}
+                        className={`text-xs ${opp.edge_usd >= 0
+                          ? "text-emerald-400/70"
+                          : "text-red-400/70"
+                          }`}
                       >
                         ${opp.edge_usd.toFixed(2)}
                       </div>
@@ -1350,11 +1338,10 @@ export function ArbitragePage() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          opp.direction === "BUY_DEX_SELL_CEX"
-                            ? "bg-emerald-500/20 text-emerald-400"
-                            : "bg-blue-500/20 text-blue-400"
-                        }`}
+                        className={`px-2 py-1 rounded text-xs font-medium ${opp.direction === "BUY_DEX_SELL_CEX"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-blue-500/20 text-blue-400"
+                          }`}
                       >
                         {opp.direction.replace(/_/g, " ")}
                       </span>
@@ -1364,11 +1351,10 @@ export function ArbitragePage() {
                         <button
                           onClick={() => handleExecute(opp)}
                           disabled={state.kill_switch}
-                          className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                            state.kill_switch
-                              ? "bg-slate-700 text-slate-500 cursor-not-allowed"
-                              : "bg-blue-600 text-white hover:bg-blue-500"
-                          }`}
+                          className={`px-3 py-1 rounded text-xs font-medium transition-all ${state.kill_switch
+                            ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+                            : "bg-blue-600 text-white hover:bg-blue-500"
+                            }`}
                         >
                           {state.mode === "PAPER" ? "Simulate" : "Execute"}
                         </button>
@@ -1402,9 +1388,9 @@ export function ArbitragePage() {
               cexPrice={
                 state.dashboard?.market_state?.csr_usdt?.latoken_ticker
                   ? (state.dashboard.market_state.csr_usdt.latoken_ticker.bid +
-                      state.dashboard.market_state.csr_usdt.latoken_ticker
-                        .ask) /
-                    2
+                    state.dashboard.market_state.csr_usdt.latoken_ticker
+                      .ask) /
+                  2
                   : 0
               }
               dexPrice={
@@ -1423,9 +1409,9 @@ export function ArbitragePage() {
               cexPrice={
                 state.dashboard?.market_state?.csr25_usdt?.lbank_ticker
                   ? (state.dashboard.market_state.csr25_usdt.lbank_ticker.bid +
-                      state.dashboard.market_state.csr25_usdt.lbank_ticker
-                        .ask) /
-                    2
+                    state.dashboard.market_state.csr25_usdt.lbank_ticker
+                      .ask) /
+                  2
                   : 0
               }
               dexPrice={

@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 
 interface CustodialRiskModalProps {
     isOpen: boolean;
-    onConfirm: () => void;
+    onConfirm?: () => void;
+    onAccept?: () => void; // Alias for onConfirm
     onCancel: () => void;
 }
 
 const CONFIRMATION_PHRASE = "I UNDERSTAND THE RISKS";
 
-export const CustodialRiskModal: React.FC<CustodialRiskModalProps> = ({ isOpen, onConfirm, onCancel }) => {
+export const CustodialRiskModal: React.FC<CustodialRiskModalProps> = ({ isOpen, onConfirm, onAccept, onCancel }) => {
+    // Support both prop names
+    const handleConfirm = onConfirm || onAccept || (() => { });
     const [phraseInput, setPhraseInput] = useState('');
     const [isChecked, setIsChecked] = useState(false);
     const [canConfirm, setCanConfirm] = useState(false);
@@ -80,11 +83,11 @@ export const CustodialRiskModal: React.FC<CustodialRiskModalProps> = ({ isOpen, 
                         Cancel
                     </button>
                     <button
-                        onClick={onConfirm}
+                        onClick={handleConfirm}
                         disabled={!canConfirm}
                         className={`px-4 py-2 rounded font-bold transition-all ${canConfirm
-                                ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/20'
-                                : 'bg-slate-800 text-gray-500 cursor-not-allowed'
+                            ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/20'
+                            : 'bg-slate-800 text-gray-500 cursor-not-allowed'
                             }`}
                     >
                         ENABLE AUTO MODE
