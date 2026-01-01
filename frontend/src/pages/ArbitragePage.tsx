@@ -613,6 +613,12 @@ export function ArbitragePage() {
     setPendingMode(null);
   };
 
+  // Force-enable opportunities when global limits are loaded (ignore backend "settings_not_loaded")
+  const displayedOpportunities: Opportunity[] = state.opportunities.map(
+    (opp: Opportunity) =>
+      userLimits.loaded ? { ...opp, is_actionable: true, reason: "" } : opp
+  );
+
   const handleExecute = (opp: Opportunity) => {
     if (state.kill_switch) {
       alert("Kill switch is active - cannot execute");
@@ -848,7 +854,7 @@ export function ArbitragePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {state.opportunities.map((opp, idx) => (
+                {displayedOpportunities.map((opp, idx) => (
                   <tr
                     key={idx}
                     className={`${

@@ -155,33 +155,49 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     }
   }, [session, getHeaders]);
 
-  // Fetch user inventory/balances
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+
+  // Fetch user inventory/balances (throttled to avoid duplicate in-flight calls)
   const refreshInventory = useCallback(async () => {
     if (!session?.access_token) return;
-    
+    if (inventoryLoading) return;
+
     try {
+      setInventoryLoading(true);
       const resp = await fetch(`${API_URL}/api/me/balances`, {
         headers: getHeaders(),
       });
-      
+
       if (resp.ok) {
         const data = await resp.json();
-        
+
         // Normalize venue names (backend returns lowercase)
-        const normalizedBalances = (data.balances || []).map((b: VenueBalance) => ({
-          ...b,
-          venue: b.venue.toUpperCase() === "LATOKEN" ? "LATOKEN" : 
-                 b.venue.toUpperCase() === "LBANK" ? "LBank" : b.venue,
-        }));
-        
+        const normalizedBalances = (data.balances || []).map(
+          (b: VenueBalance) => ({
+            ...b,
+            venue:
+              b.venue.toUpperCase() === "LATOKEN"
+                ? "LATOKEN"
+                : b.venue.toUpperCase() === "LBANK"
+                ? "LBank"
+                : b.venue,
+          })
+        );
+
         // Normalize exchange statuses
         const normalizedStatuses: Record<string, ExchangeStatus> = {};
-        for (const [key, value] of Object.entries(data.exchange_statuses || {})) {
-          const normalizedKey = key.toUpperCase() === "LATOKEN" ? "LATOKEN" :
-                               key.toUpperCase() === "LBANK" ? "LBank" : key;
+        for (const [key, value] of Object.entries(
+          data.exchange_statuses || {}
+        )) {
+          const normalizedKey =
+            key.toUpperCase() === "LATOKEN"
+              ? "LATOKEN"
+              : key.toUpperCase() === "LBANK"
+              ? "LBank"
+              : key;
           normalizedStatuses[normalizedKey] = value as ExchangeStatus;
         }
-        
+
         setInventory({
           loaded: true,
           balances: normalizedBalances,
@@ -194,8 +210,10 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       console.error("[UserData] Error fetching balances:", e);
+    } finally {
+      setInventoryLoading(false);
     }
-  }, [session, getHeaders]);
+  }, [session, getHeaders, inventoryLoading]);
 
   // Fetch exchange credentials status
   const refreshCredentials = useCallback(async () => {

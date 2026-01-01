@@ -679,6 +679,8 @@ router.get("/balances", requireAuth, async (req: AuthenticatedRequest, res) => {
 });
 
 // Helper to fetch LATOKEN balances using CCXT
+// Official LATOKEN v2 docs: https://api.latoken.com/doc/v2/ (Balances -> GET /v2/auth/account/available)
+// We request spot balances explicitly; some accounts require a type parameter.
 async function fetchLatokenBalances(
   apiKey: string,
   apiSecret: string
@@ -698,15 +700,41 @@ async function fetchLatokenBalances(
       timeout: 30000,
     });
 
-    const balance = await exchange.fetchBalance();
-    console.log("[LATOKEN] Raw balance response keys:", Object.keys(balance));
+    // Try spot first, then fallback to trading
+    const tryFetch = async (type: string) => {
+      console.log(`[LATOKEN] fetchBalance({ type: '${type}' })`);
+      const b = await exchange.fetchBalance({ type });
+      console.log(
+        `[LATOKEN] Raw balance response keys (${type}):`,
+        Object.keys(b)
+      );
+      if (b?.info) {
+        console.log(
+          `[LATOKEN] info (${type}):`,
+          JSON.stringify(b.info).slice(0, 1000)
+        );
+      }
+      const currencies = Object.keys(b.total || {});
+      const freeKeys = Object.keys(b.free || {});
+      const usedKeys = Object.keys(b.used || {});
+      console.log(
+        `[LATOKEN] Found currencies (${type}): totals=${currencies.length}, free=${freeKeys.length}, used=${usedKeys.length}`
+      );
+      return b;
+    };
+
+    let balance = await tryFetch("spot");
+    if (!balance || Object.keys(balance.total || {}).length === 0) {
+      console.log("[LATOKEN] Spot empty, retrying with type='trading'");
+      balance = await tryFetch("trading");
+    }
 
     // Transform CCXT balance response to our format
     const balances: any[] = [];
 
     // Check all currencies, not just those with positive balance
     const currencies = Object.keys(balance.total || {});
-    console.log("[LATOKEN] Found currencies:", currencies.length);
+    console.log("[LATOKEN] Found currencies (final):", currencies.length);
 
     for (const [currency, data] of Object.entries(balance.total || {})) {
       const total = data as number;
